@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Upload, 
   Trash2, 
@@ -7,8 +7,6 @@ import {
   AlertCircle, 
   ArrowLeftRight, 
   Clock, 
-  Eraser, 
-  Undo,
   Download,
   Info,
   Sliders,
@@ -42,13 +40,6 @@ export interface ProcessedItem {
     watermarkOpacity: number;
     watermarkColor: string;
   };
-  // Eraser mask paths (drawn overlays)
-  eraserPaths: Array<{
-    points: Array<{ x: number; y: number }>;
-    size: number;
-    color: string;
-    opacity: number;
-  }>;
 }
 
 // Preset presets definitions
@@ -83,17 +74,9 @@ export default function App() {
   const [compareMode, setCompareMode] = useState<'side' | 'slider'>('slider');
   const [sliderPosition, setSliderPosition] = useState<number>(50);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
-  const [isSandboxMode, setIsSandboxMode] = useState<boolean>(false); // Eraser sandbox mode
-
-  // Sandbox draw settings
-  const [brushSize, setBrushSize] = useState<number>(20);
-  const [brushColor, setBrushColor] = useState<string>('#000000');
-  const [brushOpacity, setBrushOpacity] = useState<number>(1.0);
-  const [currentStroke, setCurrentStroke] = useState<Array<{ x: number; y: number }>>([]);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Parameter Configuration States - APPLIED (Active rendering configuration on current image)
-  const [targetFormat, setTargetFormat] = useState<'image/webp' | 'image/jpeg'>('image/webp');
+  const [targetFormat, setTargetFormat] = useState<'image/webp' | 'image/jpeg'>('image/jpeg');
   const [quality, setQuality] = useState<number>(0.85);
   const [blurEnabled, setBlurEnabled] = useState<boolean>(false);
   const [blurRadius, setBlurRadius] = useState<number>(3);
@@ -105,7 +88,7 @@ export default function App() {
   const [watermarkColor, setWatermarkColor] = useState<string>('#ffffff');
 
   // Parameter Configuration States - PENDING (Staged modification drafts)
-  const [pendingTargetFormat, setPendingTargetFormat] = useState<'image/webp' | 'image/jpeg'>('image/webp');
+  const [pendingTargetFormat, setPendingTargetFormat] = useState<'image/webp' | 'image/jpeg'>('image/jpeg');
   const [pendingQuality, setPendingQuality] = useState<number>(0.85);
   const [pendingBlurEnabled, setPendingBlurEnabled] = useState<boolean>(false);
   const [pendingBlurRadius, setPendingBlurRadius] = useState<number>(3);
@@ -122,7 +105,7 @@ export default function App() {
   useEffect(() => {
     if (selectedItem) {
       const srcConfig = selectedItem.result || {
-        format: 'image/webp',
+        format: 'image/jpeg',
         quality: 0.85,
         blurEnabled: false,
         blurRadius: 3,
@@ -174,6 +157,43 @@ export default function App() {
   // Visual Quality helper text computed reactive states
   const pendingSelectedPresetText = getQualityText(pendingQuality);
 
+  // Estimator for file size based on pending parameters
+  const getEstimatedSize = (): number => {
+    if (!selectedItem) return 0;
+    
+    // If we have an existing rendered result, use it as a highly accurate baseline
+    if (selectedItem.result) {
+      const res = selectedItem.result;
+      
+      // Scale curve for quality (quadratic approximation matches JPEG/WebP compression characteristics)
+      const baseP = 0.15 + 0.85 * Math.pow(res.quality, 2);
+      const pendingP = 0.15 + 0.85 * Math.pow(pendingQuality, 2);
+      let size = res.destSize * (pendingP / baseP);
+      
+      // Scale for format transitions
+      if (res.format !== pendingTargetFormat) {
+        if (pendingTargetFormat === 'image/webp') {
+          size *= 0.7; // WebP is tighter
+        } else {
+          size *= 1.4; // JPEG is larger
+        }
+      }
+      
+      // Scale for blur changes
+      const baseBlurFactor = res.blurEnabled ? Math.max(0.5, 1 - res.blurRadius * 0.04) : 1.0;
+      const pendingBlurFactor = pendingBlurEnabled ? Math.max(0.5, 1 - pendingBlurRadius * 0.04) : 1.0;
+      size = size * (pendingBlurFactor / baseBlurFactor);
+      
+      return Math.max(1024, Math.min(selectedItem.size * 1.5, size));
+    }
+    
+    // Fallback if no result has been rendered yet
+    const qFactor = 0.15 + 0.65 * Math.pow(pendingQuality, 2);
+    const fFactor = pendingTargetFormat === 'image/webp' ? 0.65 : 0.9;
+    const bFactor = pendingBlurEnabled ? Math.max(0.5, 1 - pendingBlurRadius * 0.04) : 1.0;
+    return Math.max(1024, selectedItem.size * qFactor * fFactor * bFactor);
+  };
+
   // Statistics counters
   const totalCount = items.length;
   const originalTotalSizeKb = items.reduce((sum, it) => sum + (it.size || 0), 0) / 1024;
@@ -219,27 +239,6 @@ export default function App() {
 
         // Step 1: Draw the original image clean
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        // Step 2: Overlay user's manual brush redactions/eraser stroke items
-        if (targetItem.eraserPaths && targetItem.eraserPaths.length > 0) {
-          targetItem.eraserPaths.forEach(path => {
-            if (path.points.length === 0) return;
-            ctx.save();
-            ctx.strokeStyle = path.color;
-            ctx.lineWidth = path.size;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.globalAlpha = path.opacity;
-
-            ctx.beginPath();
-            ctx.moveTo(path.points[0].x, path.points[0].y);
-            for (let i = 1; i < path.points.length; i++) {
-              ctx.lineTo(path.points[i].x, path.points[i].y);
-            }
-            ctx.stroke();
-            ctx.restore();
-          });
-        }
 
         // Step 3: Draw blurring if active (Gaussian simulation)
         if (conf.blurEnabled && conf.blurRadius > 0) {
@@ -290,9 +289,6 @@ export default function App() {
             let psnr = 48.5 - ((1 - conf.quality) * 16.5);
             if (conf.blurEnabled && conf.blurRadius > 0) {
               psnr -= (conf.blurRadius * 2.8);
-            }
-            if (targetItem.eraserPaths && targetItem.eraserPaths.length > 0) {
-              psnr -= (targetItem.eraserPaths.length * 1.5);
             }
             psnr = Math.max(10, Math.min(50, parseFloat(psnr.toFixed(2))));
 
@@ -345,8 +341,7 @@ export default function App() {
       type: file.type,
       src: URL.createObjectURL(file),
       size: file.size,
-      status: 'PENDING',
-      eraserPaths: []
+      status: 'PENDING'
     }));
 
     setItems(prev => {
@@ -446,91 +441,21 @@ export default function App() {
     }
   };
 
-  // Manual brush canvas drawing events (Sandbox Layer inside selected item)
-  const getCanvasMousePos = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    
-    // Account for full natural sizing scaling of the drawing overlays
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY
-    };
-  };
+  // Download all completed items staggered to prevent browser blockages
+  const handleDownloadAll = () => {
+    const completedItems = items.filter(it => it.status === 'COMPLETED' && it.result?.destSrc);
+    if (completedItems.length === 0) return;
 
-  const handleSandboxMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isSandboxMode || !selectedItem) return;
-    const pos = getCanvasMousePos(e);
-    setCurrentStroke([pos]);
-  };
-
-  const handleSandboxMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isSandboxMode || currentStroke.length === 0) return;
-    const pos = getCanvasMousePos(e);
-    setCurrentStroke(prev => [...prev, pos]);
-  };
-
-  const handleSandboxMouseUp = () => {
-    if (!isSandboxMode || currentStroke.length === 0 || !selectedItem) return;
-    
-    // Save state
-    const newStroke = {
-      points: currentStroke,
-      size: brushSize,
-      color: brushColor,
-      opacity: brushOpacity
-    };
-
-    const updatedPaths = [...(selectedItem.eraserPaths || []), newStroke];
-    const updatedItem = {
-      ...selectedItem,
-      eraserPaths: updatedPaths
-    };
-
-    setItems(prev => prev.map(it => it.id === selectedItem.id ? updatedItem : it));
-    setCurrentStroke([]);
-
-    // Immediately trigger rendering update with active configurations
-    const activeConfig = {
-      format: targetFormat,
-      quality: quality,
-      blurEnabled: blurEnabled,
-      blurRadius: blurRadius,
-      watermarkEnabled: watermarkEnabled,
-      watermarkText: watermarkText,
-      watermarkDensity: watermarkDensity,
-      watermarkFontSize: watermarkFontSize,
-      watermarkOpacity: watermarkOpacity,
-      watermarkColor: watermarkColor
-    };
-    triggerSingleRecompress(updatedItem, activeConfig);
-  };
-
-  // Clear Sandbox eraser strokes
-  const handleClearSandboxEraser = () => {
-    if (!selectedItem) return;
-    const updatedItem = {
-      ...selectedItem,
-      eraserPaths: []
-    };
-    setItems(prev => prev.map(it => it.id === selectedItem.id ? updatedItem : it));
-    
-    const activeConfig = {
-      format: targetFormat,
-      quality: quality,
-      blurEnabled: blurEnabled,
-      blurRadius: blurRadius,
-      watermarkEnabled: watermarkEnabled,
-      watermarkText: watermarkText,
-      watermarkDensity: watermarkDensity,
-      watermarkFontSize: watermarkFontSize,
-      watermarkOpacity: watermarkOpacity,
-      watermarkColor: watermarkColor
-    };
-    triggerSingleRecompress(updatedItem, activeConfig);
+    completedItems.forEach((it, index) => {
+      setTimeout(() => {
+        const link = document.createElement('a');
+        link.href = it.result!.destSrc;
+        link.download = `processed_${it.name.split('.')[0]}.${it.result!.format.split('/')[1]}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }, index * 200);
+    });
   };
 
   return (
@@ -541,7 +466,7 @@ export default function App() {
           <span className="text-xl">⚙️</span>
           <div>
             <h1 className="text-sm font-bold tracking-tight text-zinc-900">图像重构与隐私水印清洗系统</h1>
-            <p className="text-[10px] text-zinc-400 mt-0.5">V8 本地沙盒渲染保护 · 高保真度 PSNR 调优 · 隐私涂抹与浮雕水印安全擦出系统</p>
+            <p className="text-[10px] text-zinc-400 mt-0.5">V8 本地沙盒渲染保护 · 高保真度 PSNR 调优 · 隐私背景模糊与版权水印自适应保护系统</p>
           </div>
         </div>
         <div className="flex items-center space-x-2">
@@ -645,7 +570,6 @@ export default function App() {
                       key={it.id}
                       onClick={() => {
                         setSelectedItemId(it.id);
-                        setIsSandboxMode(false); // reset
                       }}
                       className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between group ${
                         isSelected 
@@ -662,11 +586,6 @@ export default function App() {
                             className="w-full h-full object-cover" 
                             referrerPolicy="no-referrer"
                           />
-                          {it.eraserPaths && it.eraserPaths.length > 0 && (
-                            <div className="absolute top-0 right-0 bg-zinc-900 text-white rounded-bl p-0.5" title="拥有隐私涂抹路径">
-                              <Eraser className="w-2 h-2" />
-                            </div>
-                          )}
                         </div>
 
                         <div className="space-y-1 min-w-0">
@@ -714,6 +633,18 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {items.some(it => it.status === 'COMPLETED') && (
+            <div className="p-4 border-t border-zinc-200 bg-white sticky bottom-0 z-10 shrink-0">
+              <button
+                onClick={handleDownloadAll}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center space-x-1.5 cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-emerald-200" />
+                <span>📥 一键下载所有已处理图片 ({items.filter(it => it.status === 'COMPLETED').length} 张)</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* RIGHT COLUMN: Canvas Workspace & Adjustment Parameters (8 cols) */}
@@ -733,32 +664,18 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center space-x-2 bg-zinc-50 border border-zinc-200/80 p-1.5 rounded-xl">
-                  <button 
-                    onClick={() => {
-                      setIsSandboxMode(!isSandboxMode);
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
-                      isSandboxMode 
-                        ? 'bg-zinc-950 text-white shadow-sm' 
-                        : 'text-zinc-650 hover:bg-zinc-100'
-                    }`}
-                  >
-                    <Eraser className="w-3.5 h-3.5" />
-                    <span>🖌️ 隐私局部脱敏擦除器</span>
-                  </button>
-
+                  <span className="text-[10px] text-zinc-500 font-bold px-1 select-none">对比视图:</span>
                   <button 
                     onClick={() => {
                       setCompareMode(compareMode === 'slider' ? 'side' : 'slider');
-                      setIsSandboxMode(false);
                     }}
-                    disabled={isSandboxMode}
-                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                      compareMode === 'side' && !isSandboxMode ? 'bg-zinc-950 text-white' : 'text-zinc-500 hover:bg-zinc-100'
-                    } disabled:opacity-40 disabled:cursor-not-allowed`}
-                    title="切换原始图 / 减负保密图双面板对比"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
+                      compareMode === 'side' ? 'bg-zinc-950 text-white shadow-sm' : 'text-zinc-650 hover:bg-zinc-100'
+                    }`}
+                    title="切换原始图 / 水印轻量图双面板对比"
                   >
-                    <ArrowLeftRight className="w-4 h-4" />
+                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    <span>{compareMode === 'side' ? '单栏拖拉条对比' : '双面板并列对比'}</span>
                   </button>
                 </div>
               </div>
@@ -795,197 +712,116 @@ export default function App() {
                   </button>
                 </div>
 
-                {isSandboxMode ? (
-                  // ERASER SANDBOX CANVAS DRAWER/OVERLAY INTERACTIVE Paint area
-                  <div className="relative max-w-full flex flex-col items-center">
-                    <div className="mb-3.5 bg-zinc-950 text-white rounded-xl py-2 px-3 flex flex-wrap items-center gap-3.5 text-[10px] font-bold shadow-md">
-                      <span className="text-zinc-400">🖌️ 拖抹擦除参数:</span>
-                      <div className="flex items-center space-x-1.5">
-                        <span className="text-zinc-400">粗细:</span>
-                        <input 
-                          type="range" 
-                          min="5" 
-                          max="80" 
-                          value={brushSize} 
-                          onChange={(e) => setBrushSize(parseInt(e.target.value))}
-                          className="w-16 h-1 bg-zinc-700 rounded appearance-none cursor-pointer"
-                        />
-                        <span className="font-mono">{brushSize}px</span>
-                      </div>
-                      <div className="flex items-center space-x-1.5">
-                        <span className="text-zinc-400">颜色:</span>
-                        <input 
-                          type="color" 
-                          value={brushColor} 
-                          onChange={(e) => setBrushColor(e.target.value)}
-                          className="w-4 h-4 cursor-pointer p-0 border-0 rounded bg-transparent"
-                        />
-                        <span className="font-mono uppercase">{brushColor}</span>
-                      </div>
-                      <div className="flex items-center space-x-1.5">
-                        <span className="text-zinc-400">透明:</span>
-                        <input 
-                          type="range" 
-                          min="0.1" 
-                          max="1.0" 
-                          step="0.05"
-                          value={brushOpacity} 
-                          onChange={(e) => setBrushOpacity(parseFloat(e.target.value))}
-                          className="w-14 h-1 bg-zinc-700 rounded appearance-none cursor-pointer"
-                        />
-                        <span className="font-mono">{Math.round(brushOpacity * 100)}%</span>
-                      </div>
-                      <div className="h-4 w-[1px] bg-zinc-800" />
-                      <button
-                        onClick={handleClearSandboxEraser}
-                        className="px-2 py-1 text-rose-300 hover:text-white bg-rose-950/45 hover:bg-rose-900/80 rounded border border-rose-900/60 transition-all cursor-pointer flex items-center space-x-1"
-                      >
-                        <Undo className="w-3 h-3" />
-                        <span>擦除复位</span>
-                      </button>
-                    </div>
-
-                    <div className="relative border border-zinc-300 rounded-xl bg-white shadow-sm overflow-hidden select-none" style={{ transform: `scale(${zoomLevel})`, transition: 'transform 0.1s ease-out' }}>
-                      {/* Original image as structural background sizing */}
-                      <img 
-                        src={selectedItem.src} 
-                        alt="Eraser template backdrop" 
-                        className="max-h-[350px] object-contain block pointer-events-none"
-                        referrerPolicy="no-referrer"
-                      />
-
-                      {/* Interactive paint layered Canvas overlay */}
-                      <canvas
-                        ref={canvasRef}
-                        width={100} // bound dynamically or handled matching dimensions
-                        height={100}
-                        onMouseDown={handleSandboxMouseDown}
-                        onMouseMove={handleSandboxMouseMove}
-                        onMouseUp={handleSandboxMouseUp}
-                        onMouseLeave={handleSandboxMouseUp}
-                        className="absolute inset-0 w-full h-full cursor-crosshair z-25 bg-transparent"
-                      />
-
-                      {/* Frame Sync effect trigger, ensure matching canvas sizes */}
-                      <img
-                        src={selectedItem.src}
-                        alt="Canvas Sync Trigger"
-                        className="hidden"
-                        referrerPolicy="no-referrer"
-                        onLoad={(e) => {
-                          const targetImg = e.currentTarget;
-                          const cv = canvasRef.current;
-                          if (cv) {
-                            cv.width = targetImg.naturalWidth || targetImg.width;
-                            cv.height = targetImg.naturalHeight || targetImg.height;
-                          }
-                        }}
-                      />
-                    </div>
-                    <span className="text-[10px] text-zinc-400 mt-2.5">💡 请使用鼠标在上方大图表面直接涂拖。涂抹会以您刚才设置的粗细度叠加保存，并重新进行底片合成编译。</span>
-                  </div>
-                ) : (
-                  // REAL ORIGINAL VS PROCESSED CONTRAST ENGINE VIEWER
-                  <div className="w-full max-w-2xl flex items-center justify-center">
-                    {compareMode === 'side' ? (
-                      // Side by Side comparison panels
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                        <div className="space-y-2 text-center">
-                          <span className="text-[10px] font-mono font-bold uppercase text-zinc-400 bg-zinc-150 py-0.5 px-2 rounded">Original (原始底版)</span>
-                          <div className="bg-white border border-zinc-200/80 rounded-2xl overflow-hidden shadow-xs flex items-center justify-center p-3" style={{ transform: `scale(${zoomLevel})` }}>
-                            <img 
-                              src={selectedItem.src} 
-                              alt="Original source side" 
-                              className="max-h-[280px] object-contain rounded-lg"
-                              referrerPolicy="no-referrer"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="space-y-2 text-center">
-                          <span className="text-[10px] font-mono font-bold uppercase text-emerald-600 bg-emerald-50 py-0.5 px-2 rounded">Processed (安全轻量版)</span>
-                          <div className="bg-white border border-zinc-200/80 rounded-2xl overflow-hidden shadow-xs flex items-center justify-center p-3 relative" style={{ transform: `scale(${zoomLevel})` }}>
-                            {selectedItem.status === 'PROCESSING' ? (
-                              <div className="absolute inset-0 bg-white/80 flex flex-col items-center justify-center space-y-2">
-                                <span className="w-5 h-5 rounded-full border-2 border-zinc-300 border-t-zinc-950 animate-spin" />
-                                <span className="text-[9px] font-bold text-zinc-500">正在调用 V8 重绘像素...</span>
-                              </div>
-                            ) : null}
-                            <img 
-                              src={selectedItem.result?.destSrc || selectedItem.src} 
-                              alt="Processed outcome side" 
-                              className="max-h-[280px] object-contain rounded-lg"
-                              referrerPolicy="no-referrer"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      // Interactive split Slider comparison deck
-                      <div 
-                        className="relative w-full max-w-[480px] h-[320px] select-none border border-zinc-200 bg-white rounded-3xl overflow-hidden shadow-sm"
-                        style={{ transform: `scale(${zoomLevel})`, transition: 'transform 0.1s ease-out' }}
-                      >
-                        {/* Background panel is Compressed outcome */}
-                        <div className="absolute inset-0 w-full h-full p-2 flex items-center justify-center">
+                {/* REAL ORIGINAL VS PROCESSED CONTRAST ENGINE VIEWER */}
+                <div className="w-full max-w-2xl flex items-center justify-center">
+                  {compareMode === 'side' ? (
+                    // Side by Side comparison panels
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                      <div className="space-y-2 text-center">
+                        <span className="text-[10px] font-mono font-bold uppercase text-zinc-500 bg-zinc-150 py-0.5 px-2 rounded">
+                          Original (原图): {(selectedItem.size / 1024).toFixed(1)} KB
+                        </span>
+                        <div className="bg-white border border-zinc-200/80 rounded-2xl overflow-hidden shadow-xs flex items-center justify-center p-3" style={{ transform: `scale(${zoomLevel})` }}>
                           <img 
-                            src={selectedItem.result?.destSrc || selectedItem.src} 
-                            alt="Final Result layer" 
-                            className="w-full h-full object-contain pointer-events-none"
+                            src={selectedItem.src} 
+                            alt="Original source side" 
+                            className="max-h-[280px] object-contain rounded-lg"
                             referrerPolicy="no-referrer"
                           />
                         </div>
-
-                        {/* Foreground panel is original, clipped by sliderPosition */}
-                        <div 
-                          className="absolute inset-y-0 left-0 overflow-hidden pointer-events-none p-2 flex items-center" 
-                          style={{ width: `${sliderPosition}%` }}
-                        >
-                          <div className="absolute inset-0 p-2 flex items-center justify-center" style={{ width: '480px' }}>
-                            <img 
-                              src={selectedItem.src} 
-                              alt="Original source layer" 
-                              className="w-full h-full object-contain"
-                              referrerPolicy="no-referrer"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Split line handler */}
-                        <div 
-                          className="absolute inset-y-0 w-[2px] bg-zinc-900 cursor-ew-resize z-10"
-                          style={{ left: `${sliderPosition}%` }}
-                        >
-                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 bg-zinc-950 text-white rounded-full border-2 border-white flex items-center justify-center shadow-md text-[10px]">
-                            ⇄
-                          </div>
-                        </div>
-
-                        {/* Invisible Draggable handler input range */}
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={sliderPosition}
-                          onChange={(e) => setSliderPosition(parseInt(e.target.value))}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20"
-                        />
-
-                        {/* Badge indicators */}
-                        <span className="absolute top-3 left-3 bg-zinc-900/80 backdrop-blur text-white text-[8px] font-mono px-2 py-0.5 rounded-md font-bold uppercase select-none pointer-events-none z-10">
-                          原图 (Original)
-                        </span>
-                        <span className="absolute top-3 right-3 bg-emerald-600/80 backdrop-blur text-white text-[8px] font-mono px-2 py-0.5 rounded-md font-bold uppercase select-none pointer-events-none z-10">
-                          处理后 (Processed)
-                        </span>
                       </div>
-                    )}
-                  </div>
-                )}
+
+                      <div className="space-y-2 text-center">
+                        <span className="text-[10px] font-mono font-bold uppercase text-emerald-700 bg-emerald-50 py-0.5 px-2 rounded">
+                          Processed (处理后): {selectedItem.result ? (selectedItem.result.destSize / 1024).toFixed(1) : '?'} KB
+                          {selectedItem.result && (
+                            <span className="ml-1.5 font-extrabold text-emerald-600">
+                              (已缩减 {(((selectedItem.size - selectedItem.result.destSize) / selectedItem.size) * 100).toFixed(1)}%)
+                            </span>
+                          )}
+                        </span>
+                        <div className="bg-white border border-zinc-200/80 rounded-2xl overflow-hidden shadow-xs flex items-center justify-center p-3 relative" style={{ transform: `scale(${zoomLevel})` }}>
+                          {selectedItem.status === 'PROCESSING' ? (
+                            <div className="absolute inset-0 bg-white/80 flex flex-col items-center justify-center space-y-2">
+                              <span className="w-5 h-5 rounded-full border-2 border-zinc-300 border-t-zinc-950 animate-spin" />
+                              <span className="text-[9px] font-bold text-zinc-500">正在调用 V8 重绘像素...</span>
+                            </div>
+                          ) : null}
+                          <img 
+                            src={selectedItem.result?.destSrc || selectedItem.src} 
+                            alt="Processed outcome side" 
+                            className="max-h-[280px] object-contain rounded-lg"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    // Interactive split Slider comparison deck
+                    <div 
+                      className="relative w-full max-w-[480px] h-[320px] select-none border border-zinc-200 bg-white rounded-3xl overflow-hidden shadow-sm"
+                      style={{ transform: `scale(${zoomLevel})`, transition: 'transform 0.1s ease-out' }}
+                    >
+                      {/* Background panel is Compressed outcome */}
+                      <div className="absolute inset-0 w-full h-full p-2 flex items-center justify-center">
+                        <img 
+                          src={selectedItem.result?.destSrc || selectedItem.src} 
+                          alt="Final Result layer" 
+                          className="w-full h-full object-contain pointer-events-none"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+
+                      {/* Foreground panel is original, clipped by sliderPosition */}
+                      <div 
+                        className="absolute inset-y-0 left-0 overflow-hidden pointer-events-none p-2 flex items-center" 
+                        style={{ width: `${sliderPosition}%` }}
+                      >
+                        <div className="absolute inset-0 p-2 flex items-center justify-center" style={{ width: '480px' }}>
+                          <img 
+                            src={selectedItem.src} 
+                            alt="Original source layer" 
+                            className="w-full h-full object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Split line handler */}
+                      <div 
+                        className="absolute inset-y-0 left-0 w-[2px] bg-zinc-900 cursor-ew-resize z-10"
+                        style={{ left: `${sliderPosition}%` }}
+                      >
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 bg-zinc-950 text-white rounded-full border-2 border-white flex items-center justify-center shadow-md text-[10px]">
+                          ⇄
+                        </div>
+                      </div>
+
+                      {/* Invisible Draggable handler input range */}
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={sliderPosition}
+                        onChange={(e) => setSliderPosition(parseInt(e.target.value))}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20"
+                      />
+
+                      {/* Badge indicators */}
+                      <span className="absolute top-3 left-3 bg-zinc-900/80 backdrop-blur text-white text-[8px] font-mono px-2 py-0.5 rounded-md font-bold uppercase select-none pointer-events-none z-10">
+                        原图 (Original): {(selectedItem.size / 1024).toFixed(1)} KB
+                      </span>
+                      <span className="absolute top-3 right-3 bg-emerald-600/80 backdrop-blur text-white text-[8px] font-mono px-2 py-0.5 rounded-md font-bold uppercase select-none pointer-events-none z-10">
+                        处理后 (Processed): {selectedItem.result ? (selectedItem.result.destSize / 1024).toFixed(1) : '?'} KB
+                        {selectedItem.result && ` (-${(((selectedItem.size - selectedItem.result.destSize) / selectedItem.size) * 100).toFixed(0)}%)`}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* SPEC DETAILS: RECONSTRUCT TIME AND db PSNR INDICATORS */}
-              {selectedItem.result && !isSandboxMode && (
+              {selectedItem.result && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 flex flex-col justify-between">
                     <span className="text-zinc-400 text-[9px] font-bold uppercase tracking-wider block">压缩格式</span>
@@ -1045,13 +881,20 @@ export default function App() {
 
                 {/* Range quality slide block */}
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-zinc-400 font-mono tracking-wider">
-                      微调当前质量/细节阻尼度: ({Math.round(pendingQuality * 100)}%)
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <span className="text-[10px] font-bold text-zinc-400 font-mono tracking-wider flex items-center space-x-1.5">
+                      <span>🎬 微调质量 / 细节保留度:</span>
+                      <span className="text-zinc-900 font-black">({Math.round(pendingQuality * 100)}%)</span>
                     </span>
-                    <span className="text-[10px] text-zinc-500 font-medium">
-                      {pendingSelectedPresetText.text.split(' ')[0]}
-                    </span>
+                    {selectedItem && (
+                      <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md font-bold font-mono border border-emerald-100 flex items-center space-x-1 animate-fadeIn">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>预估体积: ~{(getEstimatedSize() / 1024).toFixed(1)} KB</span>
+                        <span className="text-zinc-400 font-normal">
+                          (缩减 {Math.max(0, Math.round(((selectedItem.size - getEstimatedSize()) / selectedItem.size) * 100)) || 0}%)
+                        </span>
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center space-x-4">
                     <input
@@ -1324,6 +1167,109 @@ export default function App() {
                       </a>
                     )}
                   </div>
+                </div>
+              </div>
+
+              {/* ALL DESENSITIZATION / PRIVACY RESULTS LIST CARD */}
+              <div id="desensitization-audit-card" className="bg-white border border-zinc-250 rounded-3xl p-6 shadow-sm space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-zinc-100">
+                  <div className="space-y-0.5">
+                    <h4 className="text-xs font-bold text-zinc-900 flex items-center space-x-2">
+                      <span className="text-emerald-500 text-sm">🛡️</span>
+                      <span>已加载图片脱敏合规与文件精简清单</span>
+                    </h4>
+                    <p className="text-[10px] text-zinc-400">系统沙盒对当前会话内所有导入图片的保密遮罩与体积清洗检测报表</p>
+                  </div>
+                  <span className="text-[9px] font-mono font-bold bg-zinc-100 text-zinc-650 px-2 py-1 rounded-lg border border-zinc-200/60 self-start sm:self-auto">
+                    共计 {items.length} 张图片
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead>
+                      <tr className="border-b border-zinc-150 text-zinc-400 font-bold uppercase tracking-wider">
+                        <th className="pb-2.5 font-semibold text-zinc-500">文件名</th>
+                        <th className="pb-2.5 font-semibold text-center text-zinc-500">隐私模糊状态</th>
+                        <th className="pb-2.5 font-semibold text-center text-zinc-500">版权浮雕保护</th>
+                        <th className="pb-2.5 font-semibold text-right text-zinc-500">原图大小</th>
+                        <th className="pb-2.5 font-semibold text-right text-zinc-500">处理后大小</th>
+                        <th className="pb-2.5 font-semibold text-right text-zinc-500">文件精简率</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100">
+                      {items.map((it) => {
+                        const isSelected = selectedItemId === it.id;
+                        const config = it.result || {
+                          format: 'image/jpeg',
+                          quality: 0.85,
+                          blurEnabled: false,
+                          blurRadius: 3,
+                          watermarkEnabled: false,
+                          watermarkText: '机密文件',
+                          watermarkDensity: 4,
+                          watermarkFontSize: 24,
+                          watermarkOpacity: 0.15,
+                          watermarkColor: '#ffffff'
+                        };
+                        
+                        const hasResult = !!it.result;
+                        const rawSizeKb = (it.size / 1024).toFixed(1);
+                        const destSizeKb = hasResult ? (it.result!.destSize / 1024).toFixed(1) : '-';
+                        const ratio = hasResult ? Math.round(((it.size - it.result!.destSize) / it.size) * 100) : 0;
+
+                        return (
+                          <tr 
+                            key={it.id} 
+                            id={`audit-row-${it.id}`}
+                            onClick={() => setSelectedItemId(it.id)}
+                            className={`hover:bg-zinc-50/80 transition-colors cursor-pointer ${isSelected ? 'bg-zinc-50 font-medium' : ''}`}
+                          >
+                            <td className="py-3 max-w-[150px] truncate text-zinc-800">
+                              <div className="flex items-center space-x-2">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${it.status === 'COMPLETED' ? 'bg-emerald-500' : 'bg-amber-400 animate-pulse'}`} />
+                                <span className="truncate" title={it.name}>{it.name}</span>
+                                {isSelected && (
+                                  <span className="text-[8px] font-bold text-zinc-500 bg-zinc-200 px-1 py-0.2 rounded shrink-0">当前</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 text-center">
+                              {config.blurEnabled ? (
+                                <span className="inline-block text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md text-[9px] font-bold font-mono">
+                                  高斯模糊 ({config.blurRadius}px)
+                                </span>
+                              ) : (
+                                <span className="text-zinc-400">无模糊</span>
+                              )}
+                            </td>
+                            <td className="py-3 text-center max-w-[120px] truncate">
+                              {config.watermarkEnabled ? (
+                                <span className="inline-block text-teal-600 bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded-md text-[9px] font-bold truncate max-w-[110px]" title={`水印内容: ${config.watermarkText}`}>
+                                  📌 {config.watermarkText || '已锁水印'}
+                                </span>
+                              ) : (
+                                <span className="text-zinc-400">未置水印</span>
+                              )}
+                            </td>
+                            <td className="py-3 text-right font-mono text-zinc-500">{rawSizeKb} KB</td>
+                            <td className="py-3 text-right font-mono font-bold text-zinc-800">
+                              {hasResult ? `${destSizeKb} KB` : <span className="text-zinc-450 italic">未渲染</span>}
+                            </td>
+                            <td className="py-3 text-right font-mono font-bold">
+                              {hasResult ? (
+                                <span className={ratio >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
+                                  {ratio >= 0 ? `-${ratio}%` : `+${Math.abs(ratio)}%`}
+                                </span>
+                              ) : (
+                                <span className="text-zinc-450">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
