@@ -991,6 +991,19 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* EXIF, IPTC, XMP ABSOLUTE ERASURE CERTIFICATION BANNER */}
+                <div className="p-4 bg-emerald-50/50 border border-emerald-200 rounded-2xl flex items-start space-x-3 shadow-3xs">
+                  <span className="text-base text-emerald-600 shrink-0 select-none">🛡️</span>
+                  <div className="space-y-1.5">
+                    <h5 className="text-[11px] font-black uppercase text-emerald-900 tracking-wide">
+                      国家级脱敏级标准：EXIF、IPTC 与 XMP 100% 物理清除
+                    </h5>
+                    <p className="text-[10px] text-zinc-500 leading-relaxed font-medium">
+                      本系统默认采用浏览器 Sandbox 离线光栅化技术重构像素流，在导出时<strong>永久清除并剥离 100% 的 EXIF 数据</strong>（拍摄设备、快门参数、精准GPS、时间戳）、<strong>IPTC 元数据</strong>（版权人、著作者、发布源信息）以及 <strong>XMP 信息</strong>（编辑软件操作历史追踪、图层标识、生成链条），保证导出的图像绝对无任何隐私及审计数据残留。
+                    </p>
+                  </div>
+                </div>
+
                 {/* Range quality slide block */}
                 <div className="space-y-2">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
@@ -1276,9 +1289,9 @@ export default function App() {
                   <div className="space-y-0.5">
                     <h4 className="text-xs font-bold text-zinc-900 flex items-center space-x-2">
                       <span className="text-rose-500 text-sm">🛡️</span>
-                      <span>已清除的敏感隐私元数据 (EXIF / 隐私阻隔审计)</span>
+                      <span>已清除的敏感隐私元数据 (EXIF / IPTC / XMP 隐私阻隔审计)</span>
                     </h4>
-                    <p className="text-[10px] text-zinc-400">经浏览器 V8 画布离线光栅化重构，所有图片的秘密硬件头、硬件制造指纹、地理定位、嵌入高泄密缩略图均已被物理粉碎洗净</p>
+                    <p className="text-[10px] text-zinc-400">经浏览器 Canvas 离线光栅化彻底重构，图片中的 EXIF（设备指纹、镜头光学参数、精密GPS座标、拍摄时间等）、IPTC（版权、著作者、出版属性）和 XMP（编辑软件历史追踪、元数据流）敏感隐私流均已被 100% 物理脱钩抹除。</p>
                   </div>
                   <span className="text-[9px] font-mono font-bold bg-zinc-100 text-zinc-650 px-2.5 py-1 rounded-lg border border-zinc-200/60 self-start sm:self-auto">
                     零通道泄露 • 共计 {items.length} 张图片已审计
@@ -1290,12 +1303,12 @@ export default function App() {
                     <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_rgba(244,244,245,1)]">
                       <tr className="border-b border-zinc-150 text-zinc-450 font-bold uppercase tracking-wider bg-white">
                         <th className="pb-3 pt-3 font-semibold text-zinc-500 min-w-[120px] pl-4">关联图片文件名</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已擦除物理设备指纹 (Device Model)</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已擦除光学镜头参数 (Lens Info)</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已擦除精准定位隐私 (GPS Location)</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已洗净拍摄时间标记 (Times)</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已脱密处理软件指纹 (Software Profile)</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">强制剔除的内嵌快照 (RAW Preview)</th>
+                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已擦除物理设备指纹 (EXIF Device)</th>
+                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已擦除光学镜头参数 (EXIF Lens)</th>
+                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已擦除精密GPS定位 (EXIF Location)</th>
+                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已洗净拍摄与创作时间 (EXIF / IPTC Times)</th>
+                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已脱密编辑历史与软件指纹 (XMP Profile)</th>
+                        <th className="pb-3 pt-3 font-semibold text-zinc-500">强制剔除的内嵌快照 (EXIF Thumbnail)</th>
                         <th className="pb-3 pt-3 font-semibold text-right text-zinc-500 pr-4">脱敏洗净结果</th>
                       </tr>
                     </thead>
