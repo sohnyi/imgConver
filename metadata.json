@@ -1,6 +1,8 @@
 {
-  "name": "图片格式转换与安全脱敏工具",
-  "description": "提供极速本地图片格式转换（WEBP/JPEG）与安全隐私脱敏清洗功能。利用 Canvas 级无缝无损重绘技术，彻底去除 EXIF、GPS、镜头硬件等一切个人隐藏隐私数据，支持极致视觉无损压缩比例直观比对，守护您的摄影和日常分享安全。",
+  "name": "图像轻量化与安全水印助手",
+  "description": "基于 HTML5 Canvas 和 V8 本地沙盒渲染引擎的图片高保真压缩、隐私微弱模糊及全图版权浮雕水印清洗合并脱敏处理方案系统。",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

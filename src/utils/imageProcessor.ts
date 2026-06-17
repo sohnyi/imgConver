@@ -75,7 +75,15 @@ interface ProcessImageOptions {
   file: File;
   format: 'image/webp' | 'image/jpeg';
   quality: number; // 0.0 to 1.0
+  blurEnabled?: boolean;
+  blurRadius?: number; // 0 to 10
   onProgress?: (progress: number) => void;
+  watermarkEnabled?: boolean;
+  watermarkText?: string;
+  watermarkDensity?: number; // 0 to 10
+  watermarkFontSize?: number;
+  watermarkOpacity?: number;
+  watermarkColor?: string;
 }
 
 /**
@@ -150,7 +158,15 @@ export async function processImage({
   file,
   format,
   quality,
+  blurEnabled,
+  blurRadius,
   onProgress,
+  watermarkEnabled,
+  watermarkText,
+  watermarkDensity,
+  watermarkFontSize,
+  watermarkOpacity,
+  watermarkColor,
 }: ProcessImageOptions): Promise<ProcessedResult> {
   const startTime = performance.now();
   onProgress?.(10);
@@ -183,7 +199,22 @@ export async function processImage({
         }
 
         // Draw image directly
+        if (blurEnabled && blurRadius !== undefined && blurRadius > 0) {
+          ctx.filter = `blur(${blurRadius}px)`;
+        }
         ctx.drawImage(originalImg, 0, 0);
+
+        // Reset filter
+        ctx.filter = 'none';
+
+        // Apply custom watermark if enabled
+        if (watermarkEnabled && watermarkText) {
+          const wDensity = watermarkDensity !== undefined ? watermarkDensity : 5;
+          const wFontSize = watermarkFontSize || 36;
+          const wOpacity = watermarkOpacity !== undefined ? watermarkOpacity : 0.3;
+          const wColor = watermarkColor || '#ffffff';
+          drawWatermark(ctx, originalWidth, originalHeight, watermarkText, wDensity, wFontSize, wOpacity, wColor);
+        }
 
         // 4. Compress the raw canvas pixels to target format & quality (lossless or high-quality)
         canvas.toBlob(
@@ -259,4 +290,61 @@ export async function processImage({
     reader.onerror = () => reject(new Error('FileReader loaded raw file with error'));
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * Renders custom watermark text (single centered if density === 0 or repeating tiled grid if density > 0)
+ */
+function drawWatermark(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  text: string,
+  density: number,
+  fontSize: number,
+  opacity: number,
+  color: string
+): void {
+  if (!text) return;
+
+  ctx.save();
+  ctx.filter = 'none';
+  ctx.globalAlpha = opacity;
+  ctx.fillStyle = color;
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+
+  if (density === 0) {
+    // Single massive or centered subtle text overlay, rotated 30 degrees
+    ctx.translate(w / 2, h / 2);
+    ctx.rotate(-30 * Math.PI / 180);
+    ctx.fillText(text, 0, 0);
+  } else {
+    // Tiled repeating grid across the whole canvas view
+    const angle = -30 * Math.PI / 180;
+    
+    // density is 1 to 10
+    // Higher density = smaller steps = closer grouped tiles.
+    const baseStepX = Math.max(180, fontSize * 6);
+    const baseStepY = Math.max(120, fontSize * 4);
+    
+    // Scale step sizing linearly based on density density
+    const scaleFactor = Math.max(0.2, (11 - density) / 6);
+    const stepX = baseStepX * scaleFactor;
+    const stepY = baseStepY * scaleFactor;
+
+    // Cover extra margins for rotated grid
+    for (let x = -w * 0.5; x < w * 1.5; x += stepX) {
+      for (let y = -h * 0.5; y < h * 1.5; y += stepY) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
+      }
+    }
+  }
+
+  ctx.restore();
 }
