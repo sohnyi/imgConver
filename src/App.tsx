@@ -226,6 +226,10 @@ export default function App() {
   const [targetSizeEnabled, setTargetSizeEnabled] = useState<boolean>(false);
   const [targetSize, setTargetSize] = useState<number>(200); // KB
 
+  // Global default settings (for new uploads)
+  const [globalTargetSizeEnabled, setGlobalTargetSizeEnabled] = useState<boolean>(false);
+  const [globalTargetSize, setGlobalTargetSize] = useState<number>(200); // KB
+
   // Parameter Configuration States - PENDING (Staged modification drafts)
   const [pendingTargetFormat, setPendingTargetFormat] = useState<'image/webp' | 'image/jpeg'>('image/jpeg');
   const [pendingQuality, setPendingQuality] = useState<number>(0.85);
@@ -569,6 +573,12 @@ export default function App() {
         };
         newItems.push(item);
         console.log(`[Upload] File ${i + 1} processed successfully, hasMetadata:`, !!metadata);
+
+        // Trigger initial render with global default settings
+        triggerSingleRecompress(item, {
+          targetSizeEnabled: globalTargetSizeEnabled,
+          targetSize: globalTargetSize
+        });
       } catch (error) {
         console.error(`[Upload] CRITICAL ERROR processing file ${i + 1}:`, error);
         // Still add the item but without metadata
@@ -581,6 +591,12 @@ export default function App() {
           status: 'PENDING'
         };
         newItems.push(item);
+
+        // Trigger initial render with global default settings
+        triggerSingleRecompress(item, {
+          targetSizeEnabled: globalTargetSizeEnabled,
+          targetSize: globalTargetSize
+        });
       }
     }
 
@@ -591,12 +607,6 @@ export default function App() {
         setSelectedItemId(newItems[0].id);
       }
       return combined;
-    });
-
-    // Fire processings
-    console.log('[Upload] Starting render for', newItems.length, 'items');
-    newItems.forEach(item => {
-      triggerSingleRecompress(item);
     });
   };
 
@@ -826,14 +836,14 @@ export default function App() {
                 <label className="flex items-start space-x-3 cursor-pointer select-none flex-1">
                   <input
                     type="checkbox"
-                    checked={pendingTargetSizeEnabled}
-                    onChange={(e) => setPendingTargetSizeEnabled(e.target.checked)}
+                    checked={globalTargetSizeEnabled}
+                    onChange={(e) => setGlobalTargetSizeEnabled(e.target.checked)}
                     className="w-4 h-4 mt-0.5 text-blue-600 border-blue-300 rounded focus:ring-blue-500 cursor-pointer accent-blue-600"
                   />
                   <div className="space-y-1 flex-1">
                     <div className="flex items-center space-x-2">
                       <span className="text-xs font-bold text-blue-900">🎯 目标大小压缩</span>
-                      {pendingTargetSizeEnabled ? (
+                      {globalTargetSizeEnabled ? (
                         <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                           已启用
                         </span>
@@ -844,21 +854,21 @@ export default function App() {
                       )}
                     </div>
                     <p className="text-[10px] text-blue-700 leading-relaxed">
-                      启用后，系统将自动调整压缩质量，使每张图片的输出大小接近目标值。
+                      启用后，新上传的图片将自动按目标大小压缩。
                     </p>
                   </div>
                 </label>
               </div>
 
               {/* Target size input */}
-              {pendingTargetSizeEnabled && (
+              {globalTargetSizeEnabled && (
                 <div className="space-y-2 animate-fadeIn">
                   <div className="flex items-center space-x-2">
                     <span className="text-[10px] font-bold text-blue-700 whitespace-nowrap">目标大小:</span>
                     <input
                       type="number"
-                      value={pendingTargetSize}
-                      onChange={(e) => setPendingTargetSize(Math.max(10, Math.min(10000, parseInt(e.target.value) || 200)))}
+                      value={globalTargetSize}
+                      onChange={(e) => setGlobalTargetSize(Math.max(10, Math.min(10000, parseInt(e.target.value) || 200)))}
                       min="10"
                       max="10000"
                       step="10"
@@ -870,9 +880,9 @@ export default function App() {
                     {[50, 100, 200, 500, 1000].map((size) => (
                       <button
                         key={size}
-                        onClick={() => setPendingTargetSize(size)}
+                        onClick={() => setGlobalTargetSize(size)}
                         className={`text-[9px] font-mono px-2 py-1 rounded transition-all ${
-                          pendingTargetSize === size
+                          globalTargetSize === size
                             ? 'bg-blue-600 text-white font-bold shadow-sm'
                             : 'bg-white hover:bg-blue-100 text-blue-700 border border-blue-200'
                         }`}
@@ -1011,34 +1021,36 @@ export default function App() {
           </div>
 
           {totalCount > 0 && (
-            <div className="p-6 border-t border-zinc-200 bg-white sticky bottom-0 z-10 shrink-0 grid grid-cols-10 gap-3">
-              <button
-                onClick={handleClearAllItems}
-                className="col-span-2 py-4 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-2xl text-xs font-bold transition-all shadow-md hover:shadow-lg flex items-center justify-center space-x-1 cursor-pointer border-none active:scale-95"
-                title="清空当前所有导入的图片底片"
-              >
-                <Trash2 className="w-4 h-4 shrink-0 text-rose-200" />
-                <span className="truncate">一键清空 ({totalCount})</span>
-              </button>
+            <div className="p-5 border-t border-zinc-200 bg-white sticky bottom-0 z-10 shrink-0">
+              <div className="grid grid-cols-3 gap-3">
+                <button
+                  onClick={handleClearAllItems}
+                  className="py-3.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
+                  title="清空当前所有导入的图片"
+                >
+                  <Trash2 className="w-4 h-4 shrink-0" />
+                  <span>清空 ({totalCount})</span>
+                </button>
 
-              <button
-                disabled={!items.some(it => it.status === 'COMPLETED')}
-                onClick={handleDownloadAll}
-                className="col-span-4 py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-100 disabled:text-zinc-400 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
-              >
-                <Download className="w-4 h-4 disabled:text-zinc-350" />
-                <span>一键下载所有图片（{items.filter(it => it.status === 'COMPLETED').length}张）</span>
-              </button>
+                <button
+                  disabled={!items.some(it => it.status === 'COMPLETED')}
+                  onClick={handleDownloadAll}
+                  className="py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-200 disabled:text-zinc-400 text-white rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
+                >
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span>下载所有 ({items.filter(it => it.status === 'COMPLETED').length})</span>
+                </button>
 
-              <button
-                disabled={!items.some(it => it.status === 'COMPLETED')}
-                onClick={handleDownloadZip}
-                className="col-span-4 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-100 disabled:text-zinc-400 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
-                title="打包下载所有处理后的图片为 ZIP 压缩包"
-              >
-                <Package className="w-4 h-4 disabled:text-zinc-350" />
-                <span>下载 ZIP 包（{items.filter(it => it.status === 'COMPLETED').length}张）</span>
-              </button>
+                <button
+                  disabled={!items.some(it => it.status === 'COMPLETED')}
+                  onClick={handleDownloadZip}
+                  className="py-3.5 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-200 disabled:text-zinc-400 text-white rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
+                  title="打包下载为 ZIP 压缩包"
+                >
+                  <Package className="w-4 h-4 shrink-0" />
+                  <span>ZIP 包 ({items.filter(it => it.status === 'COMPLETED').length})</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
