@@ -642,6 +642,10 @@ export default function App() {
   const handleDeleteItem = (itemId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setItems(prev => {
+      const itemToDelete = prev.find(it => it.id === itemId);
+      if (itemToDelete) {
+        URL.revokeObjectURL(itemToDelete.src);
+      }
       const filtered = prev.filter(it => it.id !== itemId);
       if (selectedItemId === itemId) {
         setSelectedItemId(filtered.length > 0 ? filtered[0].id : null);
@@ -652,6 +656,7 @@ export default function App() {
 
   // Clear All Items
   const handleClearAllItems = () => {
+    items.forEach(it => URL.revokeObjectURL(it.src));
     setItems([]);
     setSelectedItemId(null);
   };
