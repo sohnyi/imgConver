@@ -1,0 +1,42 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+dist-ssr/
+
+# 系统文件
+.DS_Store
+*.local
+Thumbs.db
+
+# 环境变量 / 密钥
+.env
+.env.*
+!.env.example
+
+# 编辑器 / IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 日志
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# AI 工具产物（不纳入项目代码）
+.claude/
+.claude-*
+CLAUDE.md
+.cursor/
+.cursorrules
+.aider*
+.windsurfrules

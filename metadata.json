@@ -1,8 +1,0 @@
-{
-  "name": "图像轻量化与安全水印助手",
-  "description": "基于 HTML5 Canvas 和 V8 本地沙盒渲染引擎的图片高保真压缩、隐私微弱模糊及全图版权浮雕水印清洗合并脱敏处理方案系统。",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}
