@@ -13,9 +13,11 @@ import {
   FileCheck2,
   Lock,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Package
 } from 'lucide-react';
 import * as exifr from 'exifr';
+import JSZip from 'jszip';
 
 // Define core typescript structures
 export interface ProcessedItem {
@@ -42,6 +44,8 @@ export interface ProcessedItem {
     watermarkOpacity: number;
     watermarkColor: string;
     metadataPurgeEnabled: boolean;
+    targetSizeEnabled?: boolean;
+    targetSize?: number;
   };
 }
 
@@ -219,6 +223,8 @@ export default function App() {
   const [watermarkOpacity, setWatermarkOpacity] = useState<number>(0.20);
   const [watermarkColor, setWatermarkColor] = useState<string>('#ffffff');
   const [metadataPurgeEnabled, setMetadataPurgeEnabled] = useState<boolean>(true);
+  const [targetSizeEnabled, setTargetSizeEnabled] = useState<boolean>(false);
+  const [targetSize, setTargetSize] = useState<number>(200); // KB
 
   // Parameter Configuration States - PENDING (Staged modification drafts)
   const [pendingTargetFormat, setPendingTargetFormat] = useState<'image/webp' | 'image/jpeg'>('image/jpeg');
@@ -232,6 +238,8 @@ export default function App() {
   const [pendingWatermarkOpacity, setPendingWatermarkOpacity] = useState<number>(0.20);
   const [pendingWatermarkColor, setPendingWatermarkColor] = useState<string>('#ffffff');
   const [pendingMetadataPurgeEnabled, setPendingMetadataPurgeEnabled] = useState<boolean>(true);
+  const [pendingTargetSizeEnabled, setPendingTargetSizeEnabled] = useState<boolean>(false);
+  const [pendingTargetSize, setPendingTargetSize] = useState<number>(200); // KB
 
   // Sync parameters when selected items change
   const selectedItem = items.find(it => it.id === selectedItemId);
@@ -249,7 +257,9 @@ export default function App() {
         watermarkFontSize: 24,
         watermarkOpacity: 0.20,
         watermarkColor: '#ffffff',
-        metadataPurgeEnabled: true
+        metadataPurgeEnabled: true,
+        targetSizeEnabled: false,
+        targetSize: 200
       };
 
       setTargetFormat(srcConfig.format);
@@ -263,6 +273,8 @@ export default function App() {
       setWatermarkOpacity(srcConfig.watermarkOpacity);
       setWatermarkColor(srcConfig.watermarkColor);
       setMetadataPurgeEnabled(srcConfig.metadataPurgeEnabled ?? true);
+      setTargetSizeEnabled(srcConfig.targetSizeEnabled ?? false);
+      setTargetSize(srcConfig.targetSize ?? 200);
 
       setPendingTargetFormat(srcConfig.format);
       setPendingQuality(srcConfig.quality);
@@ -275,6 +287,8 @@ export default function App() {
       setPendingWatermarkOpacity(srcConfig.watermarkOpacity);
       setPendingWatermarkColor(srcConfig.watermarkColor);
       setPendingMetadataPurgeEnabled(srcConfig.metadataPurgeEnabled ?? true);
+      setPendingTargetSizeEnabled(srcConfig.targetSizeEnabled ?? false);
+      setPendingTargetSize(srcConfig.targetSize ?? 200);
     }
   }, [selectedItemId, selectedItem]);
 
@@ -290,7 +304,9 @@ export default function App() {
     watermarkFontSize !== pendingWatermarkFontSize ||
     watermarkOpacity !== pendingWatermarkOpacity ||
     watermarkColor !== pendingWatermarkColor ||
-    metadataPurgeEnabled !== pendingMetadataPurgeEnabled;
+    metadataPurgeEnabled !== pendingMetadataPurgeEnabled ||
+    targetSizeEnabled !== pendingTargetSizeEnabled ||
+    targetSize !== pendingTargetSize;
 
   // Visual Quality helper text computed reactive states
   const pendingSelectedPresetText = getQualityText(pendingQuality);
@@ -360,6 +376,8 @@ export default function App() {
         watermarkOpacity: watermarkOpacity,
         watermarkColor: watermarkColor,
         metadataPurgeEnabled: metadataPurgeEnabled,
+        targetSizeEnabled: targetSizeEnabled,
+        targetSize: targetSize,
         ...customConfig
       };
 
@@ -425,11 +443,52 @@ export default function App() {
         // Export compression metrics
         setTimeout(() => {
           try {
-            const destSrc = canvas.toDataURL(conf.format, conf.quality);
-            const sizeInBytes = Math.round((destSrc.length - 22) * 3 / 4); // accurate base64 approximation
-            
+            let destSrc: string = '';
+            let sizeInBytes: number = 0;
+            let finalQuality = conf.quality;
+
+            // Target size compression with adaptive quality adjustment
+            if (conf.targetSizeEnabled && conf.targetSize > 0) {
+              const targetBytes = conf.targetSize * 1024;
+              let lowQuality = 0.1;
+              let highQuality = conf.quality;
+              let iterations = 0;
+              const maxIterations = 10;
+
+              console.log('[ExecuteRender] Target size mode enabled, target:', conf.targetSize, 'KB');
+
+              // Binary search for optimal quality
+              while (iterations < maxIterations) {
+                const testQuality = (lowQuality + highQuality) / 2;
+                const testSrc = canvas.toDataURL(conf.format, testQuality);
+                const testSize = Math.round((testSrc.length - 22) * 3 / 4);
+
+                console.log(`[ExecuteRender] Iteration ${iterations + 1}: quality=${testQuality.toFixed(2)}, size=${(testSize / 1024).toFixed(1)}KB`);
+
+                // Always update result
+                destSrc = testSrc;
+                sizeInBytes = testSize;
+                finalQuality = testQuality;
+
+                if (Math.abs(testSize - targetBytes) < targetBytes * 0.05) {
+                  // Within 5% tolerance
+                  break;
+                } else if (testSize > targetBytes) {
+                  highQuality = testQuality;
+                } else {
+                  lowQuality = testQuality;
+                }
+
+                iterations++;
+              }
+            } else {
+              // Normal compression mode
+              destSrc = canvas.toDataURL(conf.format, conf.quality);
+              sizeInBytes = Math.round((destSrc.length - 22) * 3 / 4);
+            }
+
             // PSNR logic simulation relative to compression parameters
-            let psnr = 48.5 - ((1 - conf.quality) * 16.5);
+            let psnr = 48.5 - ((1 - finalQuality) * 16.5);
             if (conf.blurEnabled && conf.blurRadius > 0) {
               psnr -= (conf.blurRadius * 2.8);
             }
@@ -437,14 +496,14 @@ export default function App() {
 
             const processingTimeMs = Math.round((performance.now() - startTime) + (canvas.width * canvas.height / 450000));
 
-            console.log('[ExecuteRender] Render completed successfully, size:', sizeInBytes, 'time:', processingTimeMs, 'ms');
+            console.log('[ExecuteRender] Render completed successfully, size:', sizeInBytes, 'quality:', finalQuality.toFixed(2), 'time:', processingTimeMs, 'ms');
             resolve({
               destSrc,
               destSize: sizeInBytes,
               psnr,
               processingTimeMs,
               format: conf.format,
-              quality: conf.quality,
+              quality: finalQuality,
               blurEnabled: conf.blurEnabled,
               blurRadius: conf.blurRadius,
               watermarkEnabled: conf.watermarkEnabled,
@@ -453,7 +512,9 @@ export default function App() {
               watermarkFontSize: conf.watermarkFontSize,
               watermarkOpacity: conf.watermarkOpacity,
               watermarkColor: conf.watermarkColor,
-              metadataPurgeEnabled: conf.metadataPurgeEnabled
+              metadataPurgeEnabled: conf.metadataPurgeEnabled,
+              targetSizeEnabled: conf.targetSizeEnabled,
+              targetSize: conf.targetSize
             });
           } catch(e) {
             console.error('[ExecuteRender] Canvas encoding error:', e);
@@ -467,7 +528,7 @@ export default function App() {
         reject(new Error('Failed to load raw source image.'));
       };
     });
-  }, [targetFormat, quality, blurEnabled, blurRadius, watermarkEnabled, watermarkText, watermarkDensity, watermarkFontSize, watermarkOpacity, watermarkColor, metadataPurgeEnabled]);
+  }, [targetFormat, quality, blurEnabled, blurRadius, watermarkEnabled, watermarkText, watermarkDensity, watermarkFontSize, watermarkOpacity, watermarkColor, metadataPurgeEnabled, targetSizeEnabled, targetSize]);
 
   // Handle local File Addition
   const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -609,6 +670,8 @@ export default function App() {
     setWatermarkOpacity(pendingWatermarkOpacity);
     setWatermarkColor(pendingWatermarkColor);
     setMetadataPurgeEnabled(pendingMetadataPurgeEnabled);
+    setTargetSizeEnabled(pendingTargetSizeEnabled);
+    setTargetSize(pendingTargetSize);
 
     const activeConfig = {
       format: pendingTargetFormat,
@@ -621,7 +684,9 @@ export default function App() {
       watermarkFontSize: pendingWatermarkFontSize,
       watermarkOpacity: pendingWatermarkOpacity,
       watermarkColor: pendingWatermarkColor,
-      metadataPurgeEnabled: pendingMetadataPurgeEnabled
+      metadataPurgeEnabled: pendingMetadataPurgeEnabled,
+      targetSizeEnabled: pendingTargetSizeEnabled,
+      targetSize: pendingTargetSize
     };
 
     if (applyGlobally) {
@@ -648,6 +713,44 @@ export default function App() {
         document.body.removeChild(link);
       }, index * 200);
     });
+  };
+
+  // Download all completed items as ZIP
+  const handleDownloadZip = async () => {
+    const completedItems = items.filter(it => it.status === 'COMPLETED' && it.result?.destSrc);
+    if (completedItems.length === 0) return;
+
+    console.log('[DownloadZip] Starting ZIP creation for', completedItems.length, 'items');
+
+    try {
+      const zip = new JSZip();
+
+      for (const it of completedItems) {
+        // Convert base64 data URL to blob
+        const response = await fetch(it.result!.destSrc);
+        const blob = await response.blob();
+        const fileName = `processed_${it.name.split('.')[0]}.${it.result!.format.split('/')[1]}`;
+        zip.file(fileName, blob);
+      }
+
+      console.log('[DownloadZip] Generating ZIP blob...');
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+
+      // Create download link
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `processed_images_${Date.now()}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      console.log('[DownloadZip] ZIP download completed, size:', (zipBlob.size / 1024).toFixed(1), 'KB');
+    } catch (error) {
+      console.error('[DownloadZip] ZIP creation failed:', error);
+      setErrorMsg('ZIP 包创建失败，请重试');
+    }
   };
 
   return (
@@ -856,10 +959,20 @@ export default function App() {
               <button
                 disabled={!items.some(it => it.status === 'COMPLETED')}
                 onClick={handleDownloadAll}
-                className="col-span-7 py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-100 disabled:text-zinc-400 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
+                className="col-span-3.5 py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-100 disabled:text-zinc-400 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
               >
                 <Download className="w-4 h-4 disabled:text-zinc-350" />
                 <span>一键下载所有图片（{items.filter(it => it.status === 'COMPLETED').length}张）</span>
+              </button>
+
+              <button
+                disabled={!items.some(it => it.status === 'COMPLETED')}
+                onClick={handleDownloadZip}
+                className="col-span-3.5 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-100 disabled:text-zinc-400 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
+                title="打包下载所有处理后的图片为 ZIP 压缩包"
+              >
+                <Package className="w-4 h-4 disabled:text-zinc-350" />
+                <span>下载 ZIP 包（{items.filter(it => it.status === 'COMPLETED').length}张）</span>
               </button>
             </div>
           )}
@@ -1139,6 +1252,74 @@ export default function App() {
                         <strong>警告：</strong>禁用元数据清除可能导致导出的图片包含敏感信息（如拍摄位置、设备型号、版权信息），
                         在公开发布时请谨慎使用此设置。
                       </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* TARGET SIZE COMPRESSION */}
+                <div className="p-4 bg-white border border-zinc-200 rounded-2xl space-y-3">
+                  <div className="flex items-start justify-between">
+                    <label className="flex items-start space-x-3 cursor-pointer select-none flex-1">
+                      <input
+                        type="checkbox"
+                        checked={pendingTargetSizeEnabled}
+                        onChange={(e) => setPendingTargetSizeEnabled(e.target.checked)}
+                        className="w-4 h-4 mt-0.5 text-zinc-950 border-zinc-300 rounded focus:ring-zinc-900 cursor-pointer accent-black"
+                      />
+                      <div className="space-y-1 flex-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-bold text-zinc-800">🎯 设定压缩后目标图片大小</span>
+                          {pendingTargetSizeEnabled ? (
+                            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              已启用
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">
+                              已禁用
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-zinc-500 leading-relaxed">
+                          启用后，系统将自动调整压缩质量，使每张图片的输出大小接近目标值。
+                          <span className="block mt-1 text-zinc-400">
+                            ⚠️ 启用此功能时，上方手动设置的质量参数将被忽略。
+                          </span>
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Target size input */}
+                  {pendingTargetSizeEnabled && (
+                    <div className="ml-7 space-y-2 animate-fadeIn">
+                      <div className="flex items-center space-x-3">
+                        <span className="text-[10px] font-bold text-zinc-500 whitespace-nowrap">目标大小:</span>
+                        <input
+                          type="number"
+                          value={pendingTargetSize}
+                          onChange={(e) => setPendingTargetSize(Math.max(10, Math.min(10000, parseInt(e.target.value) || 200)))}
+                          min="10"
+                          max="10000"
+                          step="10"
+                          className="w-24 text-xs bg-zinc-50 border border-zinc-200 focus:border-zinc-500 focus:bg-white rounded-lg px-3 py-1.5 focus:outline-none font-bold text-zinc-800"
+                        />
+                        <span className="text-[10px] font-bold text-zinc-500">KB</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {[50, 100, 200, 500, 1000].map((size) => (
+                          <button
+                            key={size}
+                            onClick={() => setPendingTargetSize(size)}
+                            className={`text-[9px] font-mono px-2 py-1 rounded transition-all ${
+                              pendingTargetSize === size
+                                ? 'bg-zinc-900 text-white font-bold'
+                                : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-650'
+                            }`}
+                          >
+                            {size} KB
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
