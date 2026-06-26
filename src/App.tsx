@@ -226,10 +226,6 @@ export default function App() {
   const [targetSizeEnabled, setTargetSizeEnabled] = useState<boolean>(false);
   const [targetSize, setTargetSize] = useState<number>(200); // KB
 
-  // Global default settings (for new uploads)
-  const [globalTargetSizeEnabled, setGlobalTargetSizeEnabled] = useState<boolean>(false);
-  const [globalTargetSize, setGlobalTargetSize] = useState<number>(200); // KB
-
   // Parameter Configuration States - PENDING (Staged modification drafts)
   const [pendingTargetFormat, setPendingTargetFormat] = useState<'image/webp' | 'image/jpeg'>('image/jpeg');
   const [pendingQuality, setPendingQuality] = useState<number>(0.85);
@@ -573,12 +569,6 @@ export default function App() {
         };
         newItems.push(item);
         console.log(`[Upload] File ${i + 1} processed successfully, hasMetadata:`, !!metadata);
-
-        // Trigger initial render with global default settings
-        triggerSingleRecompress(item, {
-          targetSizeEnabled: globalTargetSizeEnabled,
-          targetSize: globalTargetSize
-        });
       } catch (error) {
         console.error(`[Upload] CRITICAL ERROR processing file ${i + 1}:`, error);
         // Still add the item but without metadata
@@ -591,12 +581,6 @@ export default function App() {
           status: 'PENDING'
         };
         newItems.push(item);
-
-        // Trigger initial render with global default settings
-        triggerSingleRecompress(item, {
-          targetSizeEnabled: globalTargetSizeEnabled,
-          targetSize: globalTargetSize
-        });
       }
     }
 
@@ -607,6 +591,12 @@ export default function App() {
         setSelectedItemId(newItems[0].id);
       }
       return combined;
+    });
+
+    // Fire processings
+    console.log('[Upload] Starting render for', newItems.length, 'items');
+    newItems.forEach(item => {
+      triggerSingleRecompress(item);
     });
   };
 
@@ -829,71 +819,6 @@ export default function App() {
                 <span>{errorMsg}</span>
               </div>
             )}
-
-            {/* GLOBAL TARGET SIZE SETTING */}
-            <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl space-y-3">
-              <div className="flex items-start justify-between">
-                <label className="flex items-start space-x-3 cursor-pointer select-none flex-1">
-                  <input
-                    type="checkbox"
-                    checked={globalTargetSizeEnabled}
-                    onChange={(e) => setGlobalTargetSizeEnabled(e.target.checked)}
-                    className="w-4 h-4 mt-0.5 text-blue-600 border-blue-300 rounded focus:ring-blue-500 cursor-pointer accent-blue-600"
-                  />
-                  <div className="space-y-1 flex-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs font-bold text-blue-900">🎯 目标大小压缩</span>
-                      {globalTargetSizeEnabled ? (
-                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                          已启用
-                        </span>
-                      ) : (
-                        <span className="text-[9px] font-bold text-zinc-500 bg-white px-2 py-0.5 rounded border border-zinc-200">
-                          已禁用
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-blue-700 leading-relaxed">
-                      启用后，新上传的图片将自动按目标大小压缩。
-                    </p>
-                  </div>
-                </label>
-              </div>
-
-              {/* Target size input */}
-              {globalTargetSizeEnabled && (
-                <div className="space-y-2 animate-fadeIn">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[10px] font-bold text-blue-700 whitespace-nowrap">目标大小:</span>
-                    <input
-                      type="number"
-                      value={globalTargetSize}
-                      onChange={(e) => setGlobalTargetSize(Math.max(10, Math.min(10000, parseInt(e.target.value) || 200)))}
-                      min="10"
-                      max="10000"
-                      step="10"
-                      className="w-20 text-xs bg-white border border-blue-200 focus:border-blue-500 rounded-lg px-2 py-1 focus:outline-none font-bold text-blue-900"
-                    />
-                    <span className="text-[10px] font-bold text-blue-700">KB</span>
-                  </div>
-                  <div className="flex items-center space-x-1.5 flex-wrap">
-                    {[50, 100, 200, 500, 1000].map((size) => (
-                      <button
-                        key={size}
-                        onClick={() => setGlobalTargetSize(size)}
-                        className={`text-[9px] font-mono px-2 py-1 rounded transition-all ${
-                          globalTargetSize === size
-                            ? 'bg-blue-600 text-white font-bold shadow-sm'
-                            : 'bg-white hover:bg-blue-100 text-blue-700 border border-blue-200'
-                        }`}
-                      >
-                        {size} KB
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
 
           {/* STATISTICS WIDGET BENTO CARD */}
