@@ -819,6 +819,71 @@ export default function App() {
                 <span>{errorMsg}</span>
               </div>
             )}
+
+            {/* GLOBAL TARGET SIZE SETTING */}
+            <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl space-y-3">
+              <div className="flex items-start justify-between">
+                <label className="flex items-start space-x-3 cursor-pointer select-none flex-1">
+                  <input
+                    type="checkbox"
+                    checked={pendingTargetSizeEnabled}
+                    onChange={(e) => setPendingTargetSizeEnabled(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 text-blue-600 border-blue-300 rounded focus:ring-blue-500 cursor-pointer accent-blue-600"
+                  />
+                  <div className="space-y-1 flex-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-bold text-blue-900">🎯 目标大小压缩</span>
+                      {pendingTargetSizeEnabled ? (
+                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          已启用
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-bold text-zinc-500 bg-white px-2 py-0.5 rounded border border-zinc-200">
+                          已禁用
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-blue-700 leading-relaxed">
+                      启用后，系统将自动调整压缩质量，使每张图片的输出大小接近目标值。
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Target size input */}
+              {pendingTargetSizeEnabled && (
+                <div className="space-y-2 animate-fadeIn">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] font-bold text-blue-700 whitespace-nowrap">目标大小:</span>
+                    <input
+                      type="number"
+                      value={pendingTargetSize}
+                      onChange={(e) => setPendingTargetSize(Math.max(10, Math.min(10000, parseInt(e.target.value) || 200)))}
+                      min="10"
+                      max="10000"
+                      step="10"
+                      className="w-20 text-xs bg-white border border-blue-200 focus:border-blue-500 rounded-lg px-2 py-1 focus:outline-none font-bold text-blue-900"
+                    />
+                    <span className="text-[10px] font-bold text-blue-700">KB</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5 flex-wrap">
+                    {[50, 100, 200, 500, 1000].map((size) => (
+                      <button
+                        key={size}
+                        onClick={() => setPendingTargetSize(size)}
+                        className={`text-[9px] font-mono px-2 py-1 rounded transition-all ${
+                          pendingTargetSize === size
+                            ? 'bg-blue-600 text-white font-bold shadow-sm'
+                            : 'bg-white hover:bg-blue-100 text-blue-700 border border-blue-200'
+                        }`}
+                      >
+                        {size} KB
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* STATISTICS WIDGET BENTO CARD */}
@@ -1252,74 +1317,6 @@ export default function App() {
                         <strong>警告：</strong>禁用元数据清除可能导致导出的图片包含敏感信息（如拍摄位置、设备型号、版权信息），
                         在公开发布时请谨慎使用此设置。
                       </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* TARGET SIZE COMPRESSION */}
-                <div className="p-4 bg-white border border-zinc-200 rounded-2xl space-y-3">
-                  <div className="flex items-start justify-between">
-                    <label className="flex items-start space-x-3 cursor-pointer select-none flex-1">
-                      <input
-                        type="checkbox"
-                        checked={pendingTargetSizeEnabled}
-                        onChange={(e) => setPendingTargetSizeEnabled(e.target.checked)}
-                        className="w-4 h-4 mt-0.5 text-zinc-950 border-zinc-300 rounded focus:ring-zinc-900 cursor-pointer accent-black"
-                      />
-                      <div className="space-y-1 flex-1">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs font-bold text-zinc-800">🎯 设定压缩后目标图片大小</span>
-                          {pendingTargetSizeEnabled ? (
-                            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                              已启用
-                            </span>
-                          ) : (
-                            <span className="text-[9px] font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">
-                              已禁用
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-zinc-500 leading-relaxed">
-                          启用后，系统将自动调整压缩质量，使每张图片的输出大小接近目标值。
-                          <span className="block mt-1 text-zinc-400">
-                            ⚠️ 启用此功能时，上方手动设置的质量参数将被忽略。
-                          </span>
-                        </p>
-                      </div>
-                    </label>
-                  </div>
-
-                  {/* Target size input */}
-                  {pendingTargetSizeEnabled && (
-                    <div className="ml-7 space-y-2 animate-fadeIn">
-                      <div className="flex items-center space-x-3">
-                        <span className="text-[10px] font-bold text-zinc-500 whitespace-nowrap">目标大小:</span>
-                        <input
-                          type="number"
-                          value={pendingTargetSize}
-                          onChange={(e) => setPendingTargetSize(Math.max(10, Math.min(10000, parseInt(e.target.value) || 200)))}
-                          min="10"
-                          max="10000"
-                          step="10"
-                          className="w-24 text-xs bg-zinc-50 border border-zinc-200 focus:border-zinc-500 focus:bg-white rounded-lg px-3 py-1.5 focus:outline-none font-bold text-zinc-800"
-                        />
-                        <span className="text-[10px] font-bold text-zinc-500">KB</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {[50, 100, 200, 500, 1000].map((size) => (
-                          <button
-                            key={size}
-                            onClick={() => setPendingTargetSize(size)}
-                            className={`text-[9px] font-mono px-2 py-1 rounded transition-all ${
-                              pendingTargetSize === size
-                                ? 'bg-zinc-900 text-white font-bold'
-                                : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-650'
-                            }`}
-                          >
-                            {size} KB
-                          </button>
-                        ))}
-                      </div>
                     </div>
                   )}
                 </div>
