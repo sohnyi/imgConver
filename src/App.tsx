@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Upload, 
-  Trash2, 
-  Sparkles, 
-  CheckCircle2, 
-  AlertCircle, 
-  ArrowLeftRight, 
-  Clock, 
+import {
+  Upload,
+  Trash2,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  ArrowLeftRight,
+  Clock,
   Download,
   Info,
   Sliders,
@@ -15,6 +15,7 @@ import {
   ZoomIn,
   ZoomOut
 } from 'lucide-react';
+import * as exifr from 'exifr';
 
 // Define core typescript structures
 export interface ProcessedItem {
@@ -24,6 +25,7 @@ export interface ProcessedItem {
   src: string; // original image object URL
   size: number; // original file size in bytes
   status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'ERROR';
+  originalMetadata?: RealMetadata; // real metadata parsed from the image
   result?: {
     destSrc: string; // processed image base64/object URL
     destSize: number;
@@ -39,6 +41,7 @@ export interface ProcessedItem {
     watermarkFontSize: number;
     watermarkOpacity: number;
     watermarkColor: string;
+    metadataPurgeEnabled: boolean;
   };
 }
 
@@ -55,84 +58,133 @@ const getQualityText = (q: number): QualityPreset => {
   return { text: '极端压缩 (30% - 69%)', desc: '视觉颗粒感略增，但可换来超级轻盈的最终体积' };
 };
 
-export interface PurgedMetadata {
-  camera: string;
-  lens: string;
-  gps: string;
-  timestamp: string;
-  software: string;
-  thumbnail: string;
-  rating: string;
+export interface RealMetadata {
+  // EXIF 设备信息
+  make?: string;        // 相机制造商
+  model?: string;       // 相机型号
+  lens?: string;        // 镜头型号
+
+  // GPS 信息
+  latitude?: number;
+  longitude?: number;
+
+  // 时间戳
+  dateTimeOriginal?: Date;
+
+  // IPTC 版权信息
+  creator?: string;          // 作者/摄影师
+  copyright?: string;        // 版权声明
+
+  // XMP 编辑历史
+  software?: string;         // 编辑软件
+
+  // 缩略图
+  hasThumbnail?: boolean;
+  thumbnailSize?: number;    // KB
 }
 
-export const getPurgedMetadataForImage = (name: string, size: number): PurgedMetadata => {
-  const charSum = name.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) + size;
-  
-  const manufacturers = [
-    'Apple iPhone 15 Pro Max',
-    'Sony ILCE-7M4 (Alpha 7 IV)',
-    'Canon EOS R5 Mirrorless',
-    'Xiaomi 14 Ultra (Leica)',
-    'DJI Mavic 3 Pro Drone',
-    'Huawei Mate 60 Pro+',
-    'Samsung Galaxy S24 Ultra',
-    'Fujifilm X-T5 Mirrorless'
-  ];
-  const lenses = [
-    'Integrated 24mm f/1.78 Prime',
-    'FE 24-70mm f/2.8 GM II Zoom',
-    'RF 24-105mm f/4 L IS USM',
-    'Leica Vario-Summilux 12-120mm',
-    'Hasselblad 3-Lens Ground Combo',
-    'XMAGE Light-Chaser 22mm f/1.4',
-    'Wide & Dual Optical Zoom 200MP',
-    'XF 18-55mm f/2.8-4 R LM OIS'
-  ];
-  const locations = [
-    '31.2304° N, 121.4737° E (上海市黄浦外滩)',
-    '39.9042° N, 116.4074° E (北京市天安门东)',
-    '22.5431° N, 114.0579° E (深圳福田中心区)',
-    '30.2741° N, 120.1551° E (杭州西湖断桥水域)',
-    '35.6762° N, 139.6503° E (日本东京新宿商厦)',
-    '37.7749° N, -122.4194° W (美国旧金山政务中心)',
-    '40.7128° N, -74.0060° W (美国纽约桥接基座)',
-    '22.3964° N, 114.1095° E (中国香港九龙尖沙咀)'
-  ];
-  const dates = [
-    '2026-05-12 14:23:11 (原始EXIF拍摄)',
-    '2026-05-28 09:15:42 (移动端快门时间)',
-    '2026-06-02 18:31:05 (储存时间戳标记)',
-    '2026-06-11 11:20:55 (卫星精准定位授时)',
-    '2026-06-15 16:48:33 (最后一次硬写入瞬时)'
-  ];
-  const softwareTraces = [
-    'Adobe Photoshop 2026 (macOS)',
-    'Adobe Lightroom Classic 13.2',
-    'Apple iOS Camera Sandbox v17.4',
-    'DJI Fly Controller Engine v1.12',
-    'Snapseed for Android OS 2.19',
-    'Capture One Pro v23 Image Core'
-  ];
-  
-  const cameraIndex = charSum % manufacturers.length;
-  const lensIndex = charSum % lenses.length;
-  const locationIndex = charSum % locations.length;
-  const dateIndex = charSum % dates.length;
-  const softwareIndex = charSum % softwareTraces.length;
-  
-  const hasGps = charSum % 5 !== 0; // 80% have GPS
-  const hasCamera = charSum % 7 !== 0; // 85% have Camera info
-  const thumbSizeKb = 8 + (charSum % 15); // 8KB to 22KB
+// Parse real metadata from image file using exifr
+const parseRealMetadata = async (file: File): Promise<RealMetadata | undefined> => {
+  console.log('[Metadata] Starting parse for:', file.name, 'Size:', file.size, 'Type:', file.type);
 
-  return {
-    camera: hasCamera ? manufacturers[cameraIndex] : '无设备序列号 (已防硬件追踪)',
-    lens: hasCamera ? lenses[lensIndex] : '无光学参数 (已防成像固件指纹)',
-    gps: hasGps ? locations[locationIndex] : '无GPS坐标 (无需做空间揉沙)',
-    timestamp: dates[dateIndex],
-    software: softwareTraces[softwareIndex],
-    thumbnail: `强制核裂解 (精减并剔除内嵌隐藏 ${thumbSizeKb} KB RAW快照)`,
-    rating: hasGps ? 'A+ 安全密级' : 'S 极高合规洗净'
-  };
+  try {
+    // Parse EXIF data
+    console.log('[Metadata] Parsing EXIF...');
+    const exifData = await exifr.parse(file, {
+      pick: ['Make', 'Model', 'LensModel', 'GPSLatitude', 'GPSLongitude',
+             'DateTimeOriginal', 'Software'],
+      gps: true
+    }).catch((err) => {
+      console.warn('[Metadata] EXIF parse failed:', err.message);
+      return null;
+    });
+    console.log('[Metadata] EXIF result:', exifData ? 'Found' : 'None');
+
+    // Parse IPTC data
+    console.log('[Metadata] Parsing IPTC...');
+    const iptcData = await exifr.parse(file, {
+      pick: ['Creator', 'Copyright', 'Credit'],
+      iptc: true
+    }).catch((err) => {
+      console.warn('[Metadata] IPTC parse failed:', err.message);
+      return null;
+    });
+    console.log('[Metadata] IPTC result:', iptcData ? 'Found' : 'None');
+
+    // Check for thumbnail
+    let hasThumbnail = false;
+    let thumbnailSize = 0;
+    try {
+      console.log('[Metadata] Checking for thumbnail...');
+      const thumbnail = await exifr.thumbnail(file).catch((err) => {
+        console.warn('[Metadata] Thumbnail extraction failed:', err.message);
+        return null;
+      });
+      if (thumbnail) {
+        hasThumbnail = true;
+        thumbnailSize = Math.round(thumbnail.length / 1024);
+        console.log('[Metadata] Thumbnail found:', thumbnailSize, 'KB');
+      } else {
+        console.log('[Metadata] No thumbnail found');
+      }
+    } catch (err) {
+      console.warn('[Metadata] Thumbnail error:', err);
+    }
+
+    if (!exifData && !iptcData) {
+      console.log('[Metadata] No metadata found in file');
+      return undefined;
+    }
+
+    const result: RealMetadata = {};
+
+    // Map EXIF fields
+    if (exifData) {
+      if (exifData.Make) result.make = exifData.Make;
+      if (exifData.Model) result.model = exifData.Model;
+      if (exifData.LensModel) result.lens = exifData.LensModel;
+      if (exifData.GPSLatitude) {
+        const lat = typeof exifData.GPSLatitude === 'number' ? exifData.GPSLatitude : parseFloat(String(exifData.GPSLatitude));
+        if (!isNaN(lat)) result.latitude = lat;
+      }
+      if (exifData.GPSLongitude) {
+        const lng = typeof exifData.GPSLongitude === 'number' ? exifData.GPSLongitude : parseFloat(String(exifData.GPSLongitude));
+        if (!isNaN(lng)) result.longitude = lng;
+      }
+      if (exifData.DateTimeOriginal) {
+        // Ensure dateTimeOriginal is a Date object
+        const date = exifData.DateTimeOriginal instanceof Date
+          ? exifData.DateTimeOriginal
+          : new Date(exifData.DateTimeOriginal);
+        if (!isNaN(date.getTime())) result.dateTimeOriginal = date;
+      }
+      if (exifData.Software) result.software = exifData.Software;
+    }
+
+    // Map IPTC fields
+    if (iptcData) {
+      if (iptcData.Creator) result.creator = iptcData.Creator;
+      if (iptcData.Copyright) result.copyright = iptcData.Copyright;
+    }
+
+    // Thumbnail info
+    if (hasThumbnail) {
+      result.hasThumbnail = true;
+      result.thumbnailSize = thumbnailSize;
+    }
+
+    // Return undefined if no fields were populated
+    if (Object.keys(result).length === 0) {
+      console.log('[Metadata] Metadata parsed but all fields empty');
+      return undefined;
+    }
+
+    console.log('[Metadata] Successfully parsed metadata:', Object.keys(result).join(', '));
+    return result;
+  } catch (error) {
+    console.error('[Metadata] CRITICAL ERROR parsing metadata:', error);
+    return undefined;
+  }
 };
 
 const PRESET_COLORS = [
@@ -166,6 +218,7 @@ export default function App() {
   const [watermarkFontSize, setWatermarkFontSize] = useState<number>(24);
   const [watermarkOpacity, setWatermarkOpacity] = useState<number>(0.20);
   const [watermarkColor, setWatermarkColor] = useState<string>('#ffffff');
+  const [metadataPurgeEnabled, setMetadataPurgeEnabled] = useState<boolean>(true);
 
   // Parameter Configuration States - PENDING (Staged modification drafts)
   const [pendingTargetFormat, setPendingTargetFormat] = useState<'image/webp' | 'image/jpeg'>('image/jpeg');
@@ -178,6 +231,7 @@ export default function App() {
   const [pendingWatermarkFontSize, setPendingWatermarkFontSize] = useState<number>(24);
   const [pendingWatermarkOpacity, setPendingWatermarkOpacity] = useState<number>(0.20);
   const [pendingWatermarkColor, setPendingWatermarkColor] = useState<string>('#ffffff');
+  const [pendingMetadataPurgeEnabled, setPendingMetadataPurgeEnabled] = useState<boolean>(true);
 
   // Sync parameters when selected items change
   const selectedItem = items.find(it => it.id === selectedItemId);
@@ -194,7 +248,8 @@ export default function App() {
         watermarkDensity: 4,
         watermarkFontSize: 24,
         watermarkOpacity: 0.20,
-        watermarkColor: '#ffffff'
+        watermarkColor: '#ffffff',
+        metadataPurgeEnabled: true
       };
 
       setTargetFormat(srcConfig.format);
@@ -207,6 +262,7 @@ export default function App() {
       setWatermarkFontSize(srcConfig.watermarkFontSize);
       setWatermarkOpacity(srcConfig.watermarkOpacity);
       setWatermarkColor(srcConfig.watermarkColor);
+      setMetadataPurgeEnabled(srcConfig.metadataPurgeEnabled ?? true);
 
       setPendingTargetFormat(srcConfig.format);
       setPendingQuality(srcConfig.quality);
@@ -218,6 +274,7 @@ export default function App() {
       setPendingWatermarkFontSize(srcConfig.watermarkFontSize);
       setPendingWatermarkOpacity(srcConfig.watermarkOpacity);
       setPendingWatermarkColor(srcConfig.watermarkColor);
+      setPendingMetadataPurgeEnabled(srcConfig.metadataPurgeEnabled ?? true);
     }
   }, [selectedItemId, selectedItem]);
 
@@ -232,7 +289,8 @@ export default function App() {
     watermarkDensity !== pendingWatermarkDensity ||
     watermarkFontSize !== pendingWatermarkFontSize ||
     watermarkOpacity !== pendingWatermarkOpacity ||
-    watermarkColor !== pendingWatermarkColor;
+    watermarkColor !== pendingWatermarkColor ||
+    metadataPurgeEnabled !== pendingMetadataPurgeEnabled;
 
   // Visual Quality helper text computed reactive states
   const pendingSelectedPresetText = getQualityText(pendingQuality);
@@ -288,6 +346,8 @@ export default function App() {
     customConfig?: Partial<ProcessedItem['result']>
   ): Promise<ProcessedItem['result']> => {
     return new Promise((resolve, reject) => {
+      console.log('[ExecuteRender] Starting for:', targetItem.name);
+
       const conf = {
         format: targetFormat,
         quality: quality,
@@ -299,16 +359,19 @@ export default function App() {
         watermarkFontSize: watermarkFontSize,
         watermarkOpacity: watermarkOpacity,
         watermarkColor: watermarkColor,
+        metadataPurgeEnabled: metadataPurgeEnabled,
         ...customConfig
       };
 
       const img = new Image();
       img.src = targetItem.src;
       img.onload = () => {
+        console.log('[ExecuteRender] Image loaded, starting canvas render');
         const startTime = performance.now();
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) {
+          console.error('[ExecuteRender] Canvas 2D context not available');
           reject(new Error('Canvas 2D rendering is forbidden or blocked'));
           return;
         }
@@ -374,6 +437,7 @@ export default function App() {
 
             const processingTimeMs = Math.round((performance.now() - startTime) + (canvas.width * canvas.height / 450000));
 
+            console.log('[ExecuteRender] Render completed successfully, size:', sizeInBytes, 'time:', processingTimeMs, 'ms');
             resolve({
               destSrc,
               destSize: sizeInBytes,
@@ -388,17 +452,22 @@ export default function App() {
               watermarkDensity: conf.watermarkDensity,
               watermarkFontSize: conf.watermarkFontSize,
               watermarkOpacity: conf.watermarkOpacity,
-              watermarkColor: conf.watermarkColor
+              watermarkColor: conf.watermarkColor,
+              metadataPurgeEnabled: conf.metadataPurgeEnabled
             });
           } catch(e) {
+            console.error('[ExecuteRender] Canvas encoding error:', e);
             reject(new Error('Export canvas encoding formats error: ' + (e as Error).message));
           }
         }, 15);
       };
-      
-      img.onerror = () => reject(new Error('Failed to load raw source image.'));
+
+      img.onerror = (err) => {
+        console.error('[ExecuteRender] Image load error:', err);
+        reject(new Error('Failed to load raw source image.'));
+      };
     });
-  }, [targetFormat, quality, blurEnabled, blurRadius, watermarkEnabled, watermarkText, watermarkDensity, watermarkFontSize, watermarkOpacity, watermarkColor]);
+  }, [targetFormat, quality, blurEnabled, blurRadius, watermarkEnabled, watermarkText, watermarkDensity, watermarkFontSize, watermarkOpacity, watermarkColor, metadataPurgeEnabled]);
 
   // Handle local File Addition
   const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -407,23 +476,54 @@ export default function App() {
     }
   };
 
-  const appendSelectedFiles = (fileList: File[]) => {
+  const appendSelectedFiles = async (fileList: File[]) => {
+    console.log('[Upload] Starting file upload, count:', fileList.length);
+
     const validImages = fileList.filter(file => file.type.startsWith('image/'));
     if (validImages.length === 0) {
+      console.warn('[Upload] No valid images found in upload');
       setErrorMsg('⚠️ 只支持加载常见图片格式，请拖拽并引入有效的图片！');
       return;
     }
 
+    console.log('[Upload] Valid images:', validImages.length);
     setErrorMsg(null);
-    const newItems: ProcessedItem[] = validImages.map(file => ({
-      id: Math.random().toString(36).substring(4, 12),
-      name: file.name,
-      type: file.type,
-      src: URL.createObjectURL(file),
-      size: file.size,
-      status: 'PENDING'
-    }));
+    const newItems: ProcessedItem[] = [];
 
+    // Parse metadata for each file asynchronously
+    for (let i = 0; i < validImages.length; i++) {
+      const file = validImages[i];
+      console.log(`[Upload] Processing file ${i + 1}/${validImages.length}:`, file.name);
+
+      try {
+        const metadata = await parseRealMetadata(file);
+        const item: ProcessedItem = {
+          id: Math.random().toString(36).substring(4, 12),
+          name: file.name,
+          type: file.type,
+          src: URL.createObjectURL(file),
+          size: file.size,
+          status: 'PENDING',
+          originalMetadata: metadata
+        };
+        newItems.push(item);
+        console.log(`[Upload] File ${i + 1} processed successfully, hasMetadata:`, !!metadata);
+      } catch (error) {
+        console.error(`[Upload] CRITICAL ERROR processing file ${i + 1}:`, error);
+        // Still add the item but without metadata
+        const item: ProcessedItem = {
+          id: Math.random().toString(36).substring(4, 12),
+          name: file.name,
+          type: file.type,
+          src: URL.createObjectURL(file),
+          size: file.size,
+          status: 'PENDING'
+        };
+        newItems.push(item);
+      }
+    }
+
+    console.log('[Upload] All files processed, adding to state');
     setItems(prev => {
       const combined = [...prev, ...newItems];
       if (!selectedItemId && newItems.length > 0) {
@@ -433,6 +533,7 @@ export default function App() {
     });
 
     // Fire processings
+    console.log('[Upload] Starting render for', newItems.length, 'items');
     newItems.forEach(item => {
       triggerSingleRecompress(item);
     });
@@ -440,17 +541,20 @@ export default function App() {
 
   // Re-encode and process items
   const triggerSingleRecompress = (item: ProcessedItem, customParams?: Partial<ProcessedItem['result']>) => {
+    console.log('[Render] Starting render for:', item.name);
     setItems(prev => prev.map(it => it.id === item.id ? { ...it, status: 'PROCESSING' } : it));
 
     executeItemRender(item, customParams)
       .then(res => {
-        setItems(prev => prev.map(it => it.id === item.id ? { 
-          ...it, 
+        console.log('[Render] Successfully rendered:', item.name);
+        setItems(prev => prev.map(it => it.id === item.id ? {
+          ...it,
           status: 'COMPLETED',
-          result: res 
+          result: res
         } : it));
       })
-      .catch((_) => {
+      .catch((err) => {
+        console.error('[Render] CRITICAL ERROR rendering:', item.name, err);
         setItems(prev => prev.map(it => it.id === item.id ? { ...it, status: 'ERROR' } : it));
       });
   };
@@ -504,6 +608,7 @@ export default function App() {
     setWatermarkFontSize(pendingWatermarkFontSize);
     setWatermarkOpacity(pendingWatermarkOpacity);
     setWatermarkColor(pendingWatermarkColor);
+    setMetadataPurgeEnabled(pendingMetadataPurgeEnabled);
 
     const activeConfig = {
       format: pendingTargetFormat,
@@ -515,7 +620,8 @@ export default function App() {
       watermarkDensity: pendingWatermarkDensity,
       watermarkFontSize: pendingWatermarkFontSize,
       watermarkOpacity: pendingWatermarkOpacity,
-      watermarkColor: pendingWatermarkColor
+      watermarkColor: pendingWatermarkColor,
+      metadataPurgeEnabled: pendingMetadataPurgeEnabled
     };
 
     if (applyGlobally) {
@@ -991,17 +1097,50 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* EXIF, IPTC, XMP ABSOLUTE ERASURE CERTIFICATION BANNER */}
-                <div className="p-4 bg-emerald-50/50 border border-emerald-200 rounded-2xl flex items-start space-x-3 shadow-3xs">
-                  <span className="text-base text-emerald-600 shrink-0 select-none">🛡️</span>
-                  <div className="space-y-1.5">
-                    <h5 className="text-[11px] font-black uppercase text-emerald-900 tracking-wide">
-                      国家级脱敏级标准：EXIF、IPTC 与 XMP 100% 物理清除
-                    </h5>
-                    <p className="text-[10px] text-zinc-500 leading-relaxed font-medium">
-                      本系统默认采用浏览器 Sandbox 离线光栅化技术重构像素流，在导出时<strong>永久清除并剥离 100% 的 EXIF 数据</strong>（拍摄设备、快门参数、精准GPS、时间戳）、<strong>IPTC 元数据</strong>（版权人、著作者、发布源信息）以及 <strong>XMP 信息</strong>（编辑软件操作历史追踪、图层标识、生成链条），保证导出的图像绝对无任何隐私及审计数据残留。
-                    </p>
+                {/* METADATA PURGE TOGGLE */}
+                <div className="p-4 bg-white border border-zinc-200 rounded-2xl space-y-3">
+                  <div className="flex items-start justify-between">
+                    <label className="flex items-start space-x-3 cursor-pointer select-none flex-1">
+                      <input
+                        type="checkbox"
+                        checked={pendingMetadataPurgeEnabled}
+                        onChange={(e) => setPendingMetadataPurgeEnabled(e.target.checked)}
+                        className="w-4 h-4 mt-0.5 text-zinc-950 border-zinc-300 rounded focus:ring-zinc-900 cursor-pointer accent-black"
+                      />
+                      <div className="space-y-1 flex-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-bold text-zinc-800">🛡️ 清除敏感元数据（EXIF / IPTC / XMP）</span>
+                          {pendingMetadataPurgeEnabled ? (
+                            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              已启用
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">
+                              已禁用
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-zinc-500 leading-relaxed">
+                          启用后，导出时将<strong>永久清除</strong>图片中的 EXIF（设备指纹、GPS坐标、拍摄时间）、
+                          IPTC（版权人、作者信息）和 XMP（编辑软件历史）等敏感元数据。
+                          <span className="block mt-1 text-zinc-400">
+                            ⚠️ 禁用此选项将保留所有原始元数据，可能泄露隐私信息。
+                          </span>
+                        </p>
+                      </div>
+                    </label>
                   </div>
+
+                  {/* Warning if disabled */}
+                  {!pendingMetadataPurgeEnabled && (
+                    <div className="ml-7 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-800 flex items-start space-x-2">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>
+                        <strong>警告：</strong>禁用元数据清除可能导致导出的图片包含敏感信息（如拍摄位置、设备型号、版权信息），
+                        在公开发布时请谨慎使用此设置。
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Range quality slide block */}
@@ -1283,106 +1422,233 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ALL DESENSITIZATION / PRIVACY RESULTS LIST CARD */}
-              <div id="desensitization-audit-card" className="bg-white border border-zinc-250 rounded-3xl p-6 shadow-sm space-y-5">
+              {/* REAL METADATA AUDIT TABLE */}
+              <div id="desensitization-audit-card" className="bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-zinc-100">
                   <div className="space-y-0.5">
                     <h4 className="text-xs font-bold text-zinc-900 flex items-center space-x-2">
                       <span className="text-rose-500 text-sm">🛡️</span>
-                      <span>已清除的敏感隐私元数据 (EXIF / IPTC / XMP 隐私阻隔审计)</span>
+                      <span>已清除的真实敏感元数据（EXIF / IPTC / XMP）</span>
                     </h4>
-                    <p className="text-[10px] text-zinc-400">经浏览器 Canvas 离线光栅化彻底重构，图片中的 EXIF（设备指纹、镜头光学参数、精密GPS座标、拍摄时间等）、IPTC（版权、著作者、出版属性）和 XMP（编辑软件历史追踪、元数据流）敏感隐私流均已被 100% 物理脱钩抹除。</p>
+                    <p className="text-[10px] text-zinc-400">
+                      以下表格仅展示<strong>实际解析出元数据并被清除</strong>的图片。无元数据的图片不在此列。
+                    </p>
                   </div>
                   <span className="text-[9px] font-mono font-bold bg-zinc-100 text-zinc-650 px-2.5 py-1 rounded-lg border border-zinc-200/60 self-start sm:self-auto">
-                    零通道泄露 • 共计 {items.length} 张图片已审计
+                    {items.filter(it => it.originalMetadata && Object.keys(it.originalMetadata).length > 0).length} / {items.length} 张含元数据
                   </span>
                 </div>
 
-                <div className="overflow-auto min-h-[240px] max-h-[420px] border border-zinc-100 rounded-2xl relative">
-                  <table className="w-full text-left border-collapse text-[10px]">
-                    <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_rgba(244,244,245,1)]">
-                      <tr className="border-b border-zinc-150 text-zinc-450 font-bold uppercase tracking-wider bg-white">
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500 min-w-[120px] pl-4">关联图片文件名</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已擦除物理设备指纹 (EXIF Device)</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已擦除光学镜头参数 (EXIF Lens)</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已擦除精密GPS定位 (EXIF Location)</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已洗净拍摄与创作时间 (EXIF / IPTC Times)</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">已脱密编辑历史与软件指纹 (XMP Profile)</th>
-                        <th className="pb-3 pt-3 font-semibold text-zinc-500">强制剔除的内嵌快照 (EXIF Thumbnail)</th>
-                        <th className="pb-3 pt-3 font-semibold text-right text-zinc-500 pr-4">脱敏洗净结果</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100">
-                      {items.map((it) => {
-                        const isSelected = selectedItemId === it.id;
-                        const meta = getPurgedMetadataForImage(it.name, it.size);
+                {/* Check if any items have metadata */}
+                {items.filter(it => it.originalMetadata && Object.keys(it.originalMetadata).length > 0).length === 0 ? (
+                  // Empty state: no items have metadata
+                  <div className="py-12 flex flex-col items-center justify-center text-center space-y-3 bg-zinc-50 border border-zinc-100 rounded-2xl">
+                    <div className="w-12 h-12 bg-zinc-100 rounded-full flex items-center justify-center">
+                      <FileCheck2 className="w-6 h-6 text-zinc-400" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold text-zinc-600">所有图片均无敏感元数据</p>
+                      <p className="text-[10px] text-zinc-400">这些图片本身不包含 EXIF/IPTC/XMP 信息，无需清除。</p>
+                    </div>
+                  </div>
+                ) : (
+                  // Items with metadata, show table
+                  <div className="overflow-auto min-h-[240px] max-h-[420px] border border-zinc-100 rounded-2xl relative">
+                    <table className="w-full text-left border-collapse text-[10px]">
+                      <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_rgba(244,244,245,1)]">
+                        <tr className="border-b border-zinc-150 text-zinc-450 font-bold uppercase tracking-wider bg-white">
+                          <th className="pb-3 pt-3 font-semibold text-zinc-500 min-w-[140px] pl-4">文件名</th>
+                          <th className="pb-3 pt-3 font-semibold text-zinc-500">已清除的元数据内容</th>
+                          <th className="pb-3 pt-3 font-semibold text-right text-zinc-500 pr-4">清除状态</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {items
+                          .filter(it => it.originalMetadata && Object.keys(it.originalMetadata).length > 0)
+                          .map((it) => {
+                            const isSelected = selectedItemId === it.id;
+                            const meta = it.originalMetadata!;
 
-                        return (
-                          <tr 
-                            key={it.id} 
-                            id={`audit-row-${it.id}`}
-                            onClick={() => setSelectedItemId(it.id)}
-                            className={`hover:bg-zinc-50/80 transition-colors cursor-pointer text-zinc-700 ${isSelected ? 'bg-zinc-50 font-medium' : ''}`}
-                          >
-                            <td className="py-3.5 max-w-[140px] truncate pr-2 pl-4">
-                              <div className="flex items-center space-x-2">
-                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${it.status === 'COMPLETED' ? 'bg-emerald-500' : 'bg-amber-400 animate-pulse'}`} />
-                                <span className="truncate font-bold text-zinc-900" title={it.name}>{it.name}</span>
-                                {isSelected && (
-                                  <span className="text-[8px] font-bold text-zinc-500 bg-zinc-200 px-1 py-0.2 rounded shrink-0">当前选中</span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="py-3.5 pr-2">
-                              <div className="flex flex-col">
-                                <span className="font-semibold text-zinc-800">{meta.camera}</span>
-                                <span className="text-[8px] text-zinc-400 font-mono">Camera Brand / Spec Trace</span>
-                              </div>
-                            </td>
-                            <td className="py-3.5 pr-2">
-                              <div className="flex flex-col">
-                                <span className="font-semibold text-zinc-750">{meta.lens}</span>
-                                <span className="text-[8px] text-zinc-400 font-mono">Focal Length & Aperture</span>
-                              </div>
-                            </td>
-                            <td className="py-3.5 pr-2">
-                              <div className="flex flex-col">
-                                <span className="font-semibold text-rose-600 bg-rose-50 border border-rose-100/60 px-1.5 py-0.5 rounded-md inline-block text-[9px] max-w-xs truncate" title={meta.gps}>
-                                  📍 已彻底抹除: {meta.gps}
-                                </span>
-                                <span className="text-[8px] text-zinc-400 font-mono mt-0.5 shrink-0">Geo-Coordinates Purge</span>
-                              </div>
-                            </td>
-                            <td className="py-3.5 font-mono text-zinc-650 pr-2">
-                              <div className="flex flex-col">
-                                <span className="font-semibold">{meta.timestamp}</span>
-                                <span className="text-[8px] text-zinc-400 font-mono">Creation DateTime tag</span>
-                              </div>
-                            </td>
-                            <td className="py-3.5 pr-2">
-                              <div className="flex flex-col">
-                                <span className="font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-md inline-block text-[9px] max-w-xs truncate" title={meta.software}>
-                                  ⚙️ 已解绑: {meta.software}
-                                </span>
-                                <span className="text-[8px] text-zinc-400 font-mono mt-0.5 shrink-0">Editor Engine Trace</span>
-                              </div>
-                            </td>
-                            <td className="py-3.5 text-zinc-500 pr-2">
-                              <span className="inline-flex items-center text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded-md text-[9px] font-medium">
-                                {meta.thumbnail}
-                              </span>
-                            </td>
-                            <td className="py-3.5 text-right font-mono font-bold pr-4">
-                              <span className="inline-block px-2.5 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-extrabold rounded-full border border-emerald-200 shadow-3xs">
-                                {meta.rating}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                            // Collect all fields that have data
+                            const metadataEntries: Array<{ label: string; value: string; icon?: string }> = [];
+
+                            if (meta.make || meta.model) {
+                              metadataEntries.push({
+                                label: '相机设备',
+                                value: `${meta.make || ''} ${meta.model || ''}`.trim(),
+                                icon: '📷'
+                              });
+                            }
+                            if (meta.lens) {
+                              metadataEntries.push({
+                                label: '镜头型号',
+                                value: meta.lens,
+                                icon: '🔍'
+                              });
+                            }
+                            if (meta.latitude && meta.longitude) {
+                              // Ensure latitude and longitude are numbers
+                              const lat = typeof meta.latitude === 'number' ? meta.latitude : parseFloat(String(meta.latitude));
+                              const lng = typeof meta.longitude === 'number' ? meta.longitude : parseFloat(String(meta.longitude));
+
+                              if (!isNaN(lat) && !isNaN(lng)) {
+                                metadataEntries.push({
+                                  label: 'GPS 坐标',
+                                  value: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+                                  icon: '📍'
+                                });
+                              }
+                            }
+                            if (meta.dateTimeOriginal) {
+                              // Ensure it's a valid Date object
+                              const date = meta.dateTimeOriginal instanceof Date
+                                ? meta.dateTimeOriginal
+                                : new Date(meta.dateTimeOriginal);
+
+                              if (!isNaN(date.getTime())) {
+                                metadataEntries.push({
+                                  label: '拍摄时间',
+                                  value: date.toLocaleString('zh-CN', {
+                                    year: 'numeric',
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  }),
+                                  icon: '🕐'
+                                });
+                              }
+                            }
+                            if (meta.creator) {
+                              metadataEntries.push({
+                                label: '作者/摄影师',
+                                value: meta.creator,
+                                icon: '👤'
+                              });
+                            }
+                            if (meta.copyright) {
+                              metadataEntries.push({
+                                label: '版权声明',
+                                value: meta.copyright,
+                                icon: '©️'
+                              });
+                            }
+                            if (meta.software) {
+                              metadataEntries.push({
+                                label: '编辑软件',
+                                value: meta.software,
+                                icon: '⚙️'
+                              });
+                            }
+                            if (meta.hasThumbnail) {
+                              metadataEntries.push({
+                                label: '内嵌缩略图',
+                                value: `${meta.thumbnailSize || 0} KB`,
+                                icon: '🖼️'
+                              });
+                            }
+
+                            // Purge status
+                            const purgeStatus = !pendingMetadataPurgeEnabled ? '已保留' : '已清除';
+
+                            return (
+                              <tr
+                                key={it.id}
+                                onClick={() => setSelectedItemId(it.id)}
+                                className={`hover:bg-zinc-50/80 transition-colors cursor-pointer text-zinc-700 ${
+                                  isSelected ? 'bg-zinc-50 font-medium' : ''
+                                }`}
+                              >
+                                {/* File name */}
+                                <td className="py-3.5 max-w-[180px] truncate pr-2 pl-4 align-top">
+                                  <div className="flex items-center space-x-2">
+                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1 ${
+                                      it.status === 'COMPLETED' ? 'bg-emerald-500' : 'bg-amber-400 animate-pulse'
+                                    }`} />
+                                    <span className="truncate font-bold text-zinc-900" title={it.name}>
+                                      {it.name}
+                                    </span>
+                                  </div>
+                                </td>
+
+                                {/* Purged metadata content - vertically stacked */}
+                                <td className="py-3.5 pr-2">
+                                  <div className="flex flex-col space-y-1.5">
+                                    {metadataEntries.map((entry, idx) => (
+                                      <div key={idx} className="flex items-start space-x-2">
+                                        <span className="text-[10px] shrink-0">{entry.icon}</span>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-baseline space-x-2">
+                                            <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wide">
+                                              {entry.label}:
+                                            </span>
+                                            <span className="text-[10px] font-semibold text-zinc-800 truncate" title={entry.value}>
+                                              {entry.value}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </td>
+
+                                {/* Purge status */}
+                                <td className="py-3.5 text-right font-mono font-bold pr-4 align-top">
+                                  {purgeStatus === '已清除' && (
+                                    <span className="inline-block px-2.5 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-extrabold rounded-full border border-emerald-200">
+                                      ✅ 已清除
+                                    </span>
+                                  )}
+                                  {purgeStatus === '已保留' && (
+                                    <span className="inline-block px-2.5 py-0.5 bg-amber-100 text-amber-800 text-[9px] font-extrabold rounded-full border border-amber-200">
+                                      ⚠️ 已保留
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Statistics summary */}
+                {items.length > 0 && (
+                  <div className="pt-4 border-t border-zinc-100 grid grid-cols-2 sm:grid-cols-4 gap-3 text-[10px]">
+                    <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
+                      <div className="text-zinc-400 font-bold uppercase tracking-wider">含 GPS 信息</div>
+                      <div className="mt-1 text-lg font-black text-rose-600">
+                        {items.filter(it => it.originalMetadata?.latitude).length}
+                        <span className="text-xs text-zinc-400 font-normal ml-1">张</span>
+                      </div>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
+                      <div className="text-zinc-400 font-bold uppercase tracking-wider">含版权信息</div>
+                      <div className="mt-1 text-lg font-black text-amber-600">
+                        {items.filter(it => it.originalMetadata?.creator || it.originalMetadata?.copyright).length}
+                        <span className="text-xs text-zinc-400 font-normal ml-1">张</span>
+                      </div>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
+                      <div className="text-zinc-400 font-bold uppercase tracking-wider">无任何元数据</div>
+                      <div className="mt-1 text-lg font-black text-zinc-600">
+                        {items.filter(it => !it.originalMetadata || Object.keys(it.originalMetadata).length === 0).length}
+                        <span className="text-xs text-zinc-400 font-normal ml-1">张</span>
+                      </div>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
+                      <div className="text-zinc-400 font-bold uppercase tracking-wider">当前设置</div>
+                      <div className="mt-1 text-lg font-black">
+                        {pendingMetadataPurgeEnabled ? (
+                          <span className="text-emerald-600">✅ 清除</span>
+                        ) : (
+                          <span className="text-amber-600">⚠️ 保留</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
