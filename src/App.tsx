@@ -949,7 +949,7 @@ export default function App() {
             <div className="p-6 border-t border-zinc-200 bg-white sticky bottom-0 z-10 shrink-0 grid grid-cols-10 gap-3">
               <button
                 onClick={handleClearAllItems}
-                className="col-span-3 py-4 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-2xl text-xs font-bold transition-all shadow-md hover:shadow-lg flex items-center justify-center space-x-1 cursor-pointer border-none active:scale-95"
+                className="col-span-2 py-4 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-2xl text-xs font-bold transition-all shadow-md hover:shadow-lg flex items-center justify-center space-x-1 cursor-pointer border-none active:scale-95"
                 title="清空当前所有导入的图片底片"
               >
                 <Trash2 className="w-4 h-4 shrink-0 text-rose-200" />
@@ -959,7 +959,7 @@ export default function App() {
               <button
                 disabled={!items.some(it => it.status === 'COMPLETED')}
                 onClick={handleDownloadAll}
-                className="col-span-3.5 py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-100 disabled:text-zinc-400 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
+                className="col-span-4 py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-100 disabled:text-zinc-400 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
               >
                 <Download className="w-4 h-4 disabled:text-zinc-350" />
                 <span>一键下载所有图片（{items.filter(it => it.status === 'COMPLETED').length}张）</span>
@@ -968,7 +968,7 @@ export default function App() {
               <button
                 disabled={!items.some(it => it.status === 'COMPLETED')}
                 onClick={handleDownloadZip}
-                className="col-span-3.5 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-100 disabled:text-zinc-400 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
+                className="col-span-4 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-100 disabled:text-zinc-400 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center space-x-1.5 cursor-pointer border-none active:scale-95"
                 title="打包下载所有处理后的图片为 ZIP 压缩包"
               >
                 <Package className="w-4 h-4 disabled:text-zinc-350" />
